@@ -1,0 +1,156 @@
+/* Media Library Component Styles */
+.media-library-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 400px;
+  height: 100vh;
+  background-color: white;
+  box-shadow: -5px 0 15px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.3s ease-in-out;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.media-library-header {
+  padding: 15px;
+  background-color: #8b5cf6;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.media-library-header h5 {
+  margin: 0;
+  font-weight: bold;
+}
+
+.media-library-header .close-btn {
+  color: white;
+  font-size: 1.5rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.media-library-content {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+}
+
+.media-library-footer {
+  padding: 10px 15px;
+  background-color: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+}
+
+.selected-folder {
+  padding: 10px;
+  background-color: #f3f4f6;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.image-container {
+  position: relative;
+  height: 100px;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: grab;
+  border: 1px solid #e5e7eb;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.image-container:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.image-container:hover::before {
+  content: 'DRAG ME';
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  background-color: rgba(0,0,0,0.6);
+  color: white;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 8px;
+  z-index: 10;
+}
+
+.image-container:active {
+  cursor: grabbing;
+}
+
+.image-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-name {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 2px 5px;
+  background-color: rgba(0,0,0,0.5);
+  color: white;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-hint {
+  padding: 8px 15px;
+  background-color: #e9d5ff;
+  font-size: 0.8rem;
+  color: #6b21a8;
+  text-align: center;
+  border-radius: 4px;
+  margin-top: 15px;
+}
+
+.debug-section {
+  margin-top: 20px;
+  font-size: 0.8rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+}
+
+.debug-section details {
+  margin-bottom: 10px;
+}
+
+.debug-section summary {
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.debug-section pre {
+  background-color: #f3f4f6;
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  overflow-x: auto;
+} 
