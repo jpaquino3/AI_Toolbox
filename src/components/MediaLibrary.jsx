@@ -487,6 +487,8 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
     onSelect && onSelect(file);
   };
 
+  // NOTE: This function is now available in the Settings component
+  // Kept here for compatibility - no longer displayed in the UI
   const handleResetKeybindings = () => {
     if (window.resetAllKeybindings) {
       if (window.confirm('Are you sure you want to reset all keyboard shortcuts to defaults?')) {
@@ -533,11 +535,6 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
               <Button variant="secondary" onClick={handleChooseFolder}>
                 Choose Folder
               </Button>
-              {isProd && (
-                <Button variant="danger" onClick={handleResetKeybindings} className="ms-2">
-                  Reset Keyboard Shortcuts
-                </Button>
-              )}
             </div>
             <Button variant="primary" onClick={closeModal}>
               Close
@@ -566,11 +563,6 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
           <Button size="sm" variant="outline-primary" onClick={handleChooseFolder}>
             Choose Folder
           </Button>
-          {isProd && (
-            <Button size="sm" variant="outline-danger" onClick={handleResetKeybindings}>
-              Reset Shortcuts
-            </Button>
-          )}
         </div>
       </div>
     );

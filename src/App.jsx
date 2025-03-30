@@ -1349,7 +1349,12 @@ const App = () => {
         onMouseLeave={() => setNotepadButtonHover(false)}
         ref={notepadBtnRef}
       >
-        <span style={{ fontSize: '24px' }}>📝</span>
+        <svg width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="16" height="18" rx="2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+          <line x1="8" y1="10" x2="16" y2="10" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+          <line x1="8" y1="14" x2="16" y2="14" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+          <line x1="8" y1="18" x2="12" y2="18" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+        </svg>
       </div>
       
       {/* Media Library Button */}
@@ -1361,7 +1366,9 @@ const App = () => {
         onMouseLeave={() => setMediaLibraryButtonHover(false)}
         ref={mediaLibraryBtnRef}
       >
-        <span style={{ fontSize: '24px' }}>🖼️</span>
+        <svg width="24" height="24" fill="none" stroke="white" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
+        </svg>
       </div>
       
       {/* Media Library Panel */}

@@ -502,6 +502,25 @@ const Settings = () => {
     showMessage('Keybinding removed!');
   };
 
+  // Function to reset all keyboard shortcuts to defaults
+  const handleResetKeybindings = () => {
+    if (window.confirm('Are you sure you want to reset all keyboard shortcuts to defaults?')) {
+      // Reset keybindings by setting to empty object (will use defaults)
+      localStorage.setItem('keybindings', '{}');
+      
+      // Update the state
+      setKeybindings({});
+      
+      // Dispatch a custom event to notify other components
+      window.dispatchEvent(new CustomEvent('keybindingsChanged', { 
+        detail: {} 
+      }));
+      
+      // Show success message
+      showMessage('All keyboard shortcuts have been reset to defaults.');
+    }
+  };
+
   // Utility function to show success/error messages
   const showMessage = (message, duration = 3000) => {
     setSuccessMessageContent(message);
@@ -1209,6 +1228,19 @@ const Settings = () => {
               Use any combination of modifiers (Cmd, Ctrl, Alt, Shift) along with a letter or number.
               Shortcuts will be available immediately after setting them.
             </p>
+            
+            {/* Reset Keyboard Shortcuts Button */}
+            <div className="mt-5 flex justify-end">
+              <button
+                onClick={handleResetKeybindings}
+                className="bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Reset All Keyboard Shortcuts
+              </button>
+            </div>
           </div>
         </div>
 

@@ -15,7 +15,8 @@
     "productName": "AI Toolbox",
     "mac": {
       "category": "public.app-category.productivity",
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "AppIcon.icns"
     },
     "files": [
       "build/**/*",
