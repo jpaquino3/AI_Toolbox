@@ -1,6 +1,6 @@
 {
   "name": "ai-toolbox",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "An AI tools dashboard for managing and accessing various AI generation platforms",
   "main": "main.js",
   "scripts": {
@@ -10,6 +10,8 @@
     "rebuild": "node scripts/rebuild-sqlite.js",
     "prepackage": "npm run rebuild",
     "package": "npm run build && electron-builder build --config.asar=true --config.extraResources.from=node_modules/sqlite3/build/Release/ --config.extraResources.to=node_modules/sqlite3/build/Release/",
+    "package:win": "npm run build && node scripts/fix-windows-build.js && electron-builder build --win --config.asar=true",
+    "package:mac": "npm run build && electron-builder build --mac --config.asar=true",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "build": {
@@ -23,6 +25,17 @@
         {
           "from": "node_modules/sqlite3/build/Release/",
           "to": "Resources/app/node_modules/sqlite3/build/Release/",
+          "filter": ["*.node"]
+        }
+      ]
+    },
+    "win": {
+      "target": ["nsis"],
+      "icon": "AppIcon.ico",
+      "extraFiles": [
+        {
+          "from": "node_modules/sqlite3/build/Release/",
+          "to": "resources/app.asar.unpacked/node_modules/sqlite3/build/Release/",
           "filter": ["*.node"]
         }
       ]

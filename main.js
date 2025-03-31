@@ -786,7 +786,7 @@ function setupIPC() {
       return {};
     }
   });
-
+  
   // Handle update checking
   ipcMain.handle('check-for-updates', async () => {
     if (isDev) {
