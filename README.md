@@ -83,6 +83,40 @@ You can add any AI tool that has a web interface:
 3. Click "Add Tool"
 4. The new tool will appear in your dashboard and sidebar
 
+## App Updates
+
+The application includes an auto-update mechanism that checks for new versions from the GitHub repository. When a new version is available, users can download and install it directly from the Settings page.
+
+### How it works:
+
+1. The app uses `electron-updater` to check for updates from the GitHub repository at `https://github.com/jpaquino3/AI_Toolbox`
+2. Updates are checked automatically when the app starts and can be manually checked from the Settings page
+3. When a new version is available, users can download it with a single click
+4. After downloading, users need to restart the app to apply the update
+
+### For developers:
+
+To release a new version, update the version number in `package.json` and push to the GitHub repository. Make sure to:
+
+1. Follow semantic versioning (MAJOR.MINOR.PATCH)
+2. Create a GitHub release with the same version number
+3. Upload the built application files to the GitHub release
+
+### Troubleshooting Update Issues:
+
+If updates aren't working properly after building the app, check that:
+
+1. The `main.js` and `preload.js` files are being copied to the build directory during the build process
+2. The `electron-updater` dependency is included in your final package
+3. The `publish` configuration is correctly set in `package.json`
+4. You're creating proper GitHub releases with the same version as in your `package.json`
+
+The build process includes verification steps to ensure these files are present. You can manually run the verification with:
+
+```bash
+node scripts/verify-build.js
+```
+
 ## License
 
 ISC

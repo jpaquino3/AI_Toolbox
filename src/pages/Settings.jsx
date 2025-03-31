@@ -1,9 +1,21 @@
 import React, { useState, useEffect } from 'react';
+// Remove direct electron import which causes webpack issues
+// import { ipcRenderer } from 'electron';
+import { toast } from 'react-hot-toast';
 
 const Settings = () => {
+  const [newSite, setNewSite] = useState({ name: '', url: '', category: 'llm' });
+  const [darkMode, setDarkMode] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [aiProvider, setAiProvider] = useState('openai');
   const [toolType, setToolType] = useState('llm');
+  
+  // App version and updates state
+  const [currentVersion, setCurrentVersion] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, not-available, downloading, downloaded, error
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateError, setUpdateError] = useState('');
+  const [updateInfo, setUpdateInfo] = useState(null);
   
   // Load categorized tools from localStorage
   const [categorizedTools, setCategorizedTools] = useState(() => {
@@ -109,26 +121,26 @@ const Settings = () => {
 
   // Add this function near the top of the component before useEffect hooks
   const isElectron = () => {
-    // Check if running in Electron by looking for these specific properties
-    if (
-      typeof window !== 'undefined' && 
-      typeof window.electron !== 'undefined'
-    ) {
-      console.log('Detected Electron environment via window.electron');
+    // Check if window.electron exists and has isAvailable property
+    if (window.electron && window.electron.isAvailable === true) {
       return true;
     }
     
-    if (
-      typeof window !== 'undefined' && 
-      typeof window.process !== 'undefined' && 
-      typeof window.process.versions !== 'undefined' && 
-      typeof window.process.versions.electron !== 'undefined'
-    ) {
-      console.log('Detected Electron environment via process.versions.electron');
+    // Check if window.isElectronAvailable was set in preload
+    if (window.isElectronAvailable === true) {
       return true;
     }
     
-    console.log('Not running in Electron environment, cookie management hidden');
+    // Check for process
+    if (typeof process !== 'undefined' && process.versions && process.versions.electron) {
+      return true;
+    }
+    
+    // Check for navigator.userAgent
+    if (navigator.userAgent.indexOf('Electron') !== -1) {
+      return true;
+    }
+    
     return false;
   };
 
@@ -210,13 +222,8 @@ const Settings = () => {
     // Save to localStorage and trigger an event for other components
     localStorage.setItem('categorizedTools', JSON.stringify(updatedTools));
     
-    // Dispatch a custom event to notify App.jsx directly (in case it's in the same window)
-    window.dispatchEvent(new CustomEvent('toolsChanged', { 
-      detail: updatedTools 
-    }));
-    
     // Show success message
-    showMessage('Tool removed successfully!');
+    toast.success('Tool removed');
   };
 
   // Keybinding handlers
@@ -252,6 +259,7 @@ const Settings = () => {
     }
     
     // Determine the key display name (for special keys like Enter, Space, etc.)
+    
     let keyName = e.key.toUpperCase();
     
     // Handle special keys
@@ -521,6 +529,341 @@ const Settings = () => {
     }
   };
 
+  // Function to reset a specific tool's data
+  const handleResetToolData = (toolId) => {
+    // Find the tool to get its URL and other details
+    const tool = findToolById(toolId);
+    if (!tool) {
+      showMessage(`Tool with ID ${toolId} not found`);
+      return;
+    }
+
+    // Check if this is a Google OAuth tool
+    const isGoogleOAuth = tool.url.includes('google.com') || 
+                          tool.url.includes('accounts.google') || 
+                          tool.url.toLowerCase().includes('oauth');
+
+    // First, check if we're in Electron, and if not, handle locally
+    if (!window.electron || !window.electron.clearToolData) {
+      console.log('Using localStorage fallback for clearing tool data');
+      
+      // Clear localStorage for this tool
+      try {
+        // Get all localStorage keys
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          keys.push(localStorage.key(i));
+        }
+        
+        // Filter and remove keys related to this tool
+        const toolPrefix = `tool_${toolId}_`;
+        const keysToRemove = keys.filter(key => 
+          key.startsWith(toolPrefix) || 
+          key.includes(toolId) ||
+          (isGoogleOAuth && (key.includes('google') || key.includes('oauth') || key.includes('auth')))
+        );
+        
+        // Remove the keys
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        
+        console.log(`Cleared ${keysToRemove.length} localStorage items for tool: ${toolId}`);
+        
+        // Also try to clear cookies for this tool's domain
+        try {
+          // Extract domain from the tool's URL
+          const url = new URL(tool.url);
+          const domain = url.hostname;
+          
+          // Clear cookies for this domain if possible (browser-only, not in Electron)
+          if (document.cookie && domain) {
+            const cookies = document.cookie.split(';');
+            
+            // Get date in the past to expire cookies
+            const pastDate = new Date(0).toUTCString();
+            
+            console.log(`Attempting to clear cookies for domain: ${domain}`);
+            
+            // Try clearing domain cookies using document.cookie
+            cookies.forEach(cookie => {
+              const cookieName = cookie.trim().split('=')[0];
+              
+              // Set expiration in the past to delete the cookie
+              document.cookie = `${cookieName}=; expires=${pastDate}; path=/`;
+              
+              // Also try with the specific domain
+              document.cookie = `${cookieName}=; expires=${pastDate}; path=/; domain=${domain}`;
+              document.cookie = `${cookieName}=; expires=${pastDate}; path=/; domain=.${domain}`;
+            });
+            
+            // For Google OAuth specifically
+            if (domain.includes('google') || 
+                tool.url.includes('google') || 
+                tool.url.includes('oauth')) {
+              // Try to clear all known Google auth cookies
+              const googleCookies = [
+                'SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'LSID', 
+                '__Secure-1PSID', '__Secure-3PSID', '__Secure-1PAPISID', '__Secure-3PAPISID',
+                '__Secure-1PSIDCC', '__Secure-3PSIDCC', 'oauth_token', 'access_token', 
+                'id_token', 'refresh_token', '__Host-3PLSID', '__Host-1PLSID',
+                'ACCOUNT_CHOOSER', '__Host-GAPS', 'SIDCC'
+              ];
+              
+              googleCookies.forEach(name => {
+                document.cookie = `${name}=; expires=${pastDate}; path=/; domain=.google.com`;
+                document.cookie = `${name}=; expires=${pastDate}; path=/; domain=accounts.google.com`;
+              });
+            }
+            
+            console.log('Attempted to clear cookies via document.cookie API');
+          }
+        } catch (cookieErr) {
+          console.log('Non-critical error clearing cookies:', cookieErr);
+          // Don't throw error here, it's a best-effort attempt
+        }
+        
+        // Try to clear sessionStorage
+        try {
+          // Clear the entire sessionStorage
+          sessionStorage.clear();
+          console.log('Cleared sessionStorage');
+        } catch (sessionErr) {
+          console.log('Non-critical error clearing sessionStorage:', sessionErr);
+        }
+        
+        // Try to clear indexedDB for the tool
+        try {
+          const request = window.indexedDB.databases();
+          request.onsuccess = (event) => {
+            const databases = event.target.result;
+            databases.forEach(db => {
+              if (db.name.includes(toolId) || (isGoogleOAuth && (db.name.includes('google') || db.name.includes('auth')))) {
+                try {
+                  window.indexedDB.deleteDatabase(db.name);
+                  console.log(`Deleted IndexedDB database: ${db.name}`);
+                } catch (err) {
+                  console.log(`Error deleting IndexedDB database ${db.name}:`, err);
+                }
+              }
+            });
+          };
+        } catch (idbErr) {
+          console.log('Non-critical error clearing IndexedDB:', idbErr);
+        }
+        
+        // For stronger cookie clearing, also try to open the tool in an iframe with clearSiteData
+        try {
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          document.body.appendChild(iframe);
+          
+          // Try to clear cache via Clear-Site-Data header using a special endpoint
+          iframe.src = `${tool.url}?clearcache=true`;
+          
+          // Remove the iframe after a short delay
+          setTimeout(() => {
+            try {
+              document.body.removeChild(iframe);
+            } catch (e) {
+              console.log('Non-critical error removing iframe:', e);
+            }
+          }, 2000);
+          
+          console.log('Attempted iframe-based cache clearing');
+        } catch (iframeErr) {
+          console.log('Non-critical error with iframe cache clearing:', iframeErr);
+          // Again, best-effort only
+        }
+        
+        // For Google OAuth tools, try to open a logout URL in a hidden iframe
+        if (isGoogleOAuth) {
+          try {
+            const logoutIframe = document.createElement('iframe');
+            logoutIframe.style.cssText = 'position:absolute;width:1px;height:1px;left:-10000px;top:-10000px;';
+            document.body.appendChild(logoutIframe);
+            
+            // Navigate to Google's logout URL
+            logoutIframe.src = 'https://accounts.google.com/logout';
+            
+            // Try all important Google logout URLs
+            const googleLogoutURLs = [
+              'https://accounts.google.com/Logout',
+              'https://accounts.google.com/logout',
+              'https://mail.google.com/mail/logout',
+              'https://www.google.com/accounts/Logout',
+              'https://myaccount.google.com/logout'
+            ];
+            
+            // Try each URL with a delay
+            let urlIndex = 0;
+            const tryNextLogoutURL = () => {
+              if (urlIndex < googleLogoutURLs.length) {
+                try {
+                  logoutIframe.src = googleLogoutURLs[urlIndex];
+                  console.log(`Navigated to Google logout page: ${googleLogoutURLs[urlIndex]}`);
+                  urlIndex++;
+                  setTimeout(tryNextLogoutURL, 1000);
+                } catch (e) {
+                  console.log(`Error with logout URL ${googleLogoutURLs[urlIndex]}:`, e);
+                  urlIndex++;
+                  setTimeout(tryNextLogoutURL, 500);
+                }
+              } else {
+                // Try the OAuth revoke endpoint after all logout URLs
+                try {
+                  logoutIframe.src = 'https://accounts.google.com/o/oauth2/revoke';
+                  console.log('Navigated to OAuth revoke endpoint');
+                  
+                  // Remove the iframe after a reasonable delay
+                  setTimeout(() => {
+                    try {
+                      document.body.removeChild(logoutIframe);
+                      console.log('Completed Google logout attempt');
+                    } catch (e) {
+                      console.log('Non-critical error removing logout iframe:', e);
+                    }
+                  }, 2000);
+                } catch (e) {
+                  console.log('Non-critical error with revoke navigation:', e);
+                  
+                  // Remove the iframe anyway
+                  try {
+                    document.body.removeChild(logoutIframe);
+                  } catch (removeErr) {
+                    console.log('Non-critical error removing logout iframe:', removeErr);
+                  }
+                }
+              }
+            };
+            
+            // Start the logout URL sequence
+            tryNextLogoutURL();
+            
+            console.log('Attempted Google OAuth logout via iframe');
+          } catch (logoutErr) {
+            console.log('Non-critical error with logout iframe:', logoutErr);
+          }
+          
+          // Also try to clear cache using Cache API if available
+          try {
+            if (window.caches && window.caches.keys) {
+              window.caches.keys().then(cacheNames => {
+                cacheNames.forEach(cacheName => {
+                  if (cacheName.includes(toolId) || cacheName.includes('google') || cacheName.includes('oauth')) {
+                    window.caches.delete(cacheName)
+                      .then(() => console.log(`Deleted cache: ${cacheName}`))
+                      .catch(err => console.log(`Error deleting cache ${cacheName}:`, err));
+                  }
+                });
+              }).catch(err => {
+                console.log('Error accessing cache names:', err);
+              });
+            }
+          } catch (cacheErr) {
+            console.log('Non-critical error clearing caches:', cacheErr);
+          }
+        }
+        
+        showMessage(`Reset data for ${tool.name}`);
+        
+        // Add a more detailed message about OAuth sessions
+        if (window.confirm(`Data for ${tool.name} has been reset. To fully log out of any Google accounts, please click "Yes" to attempt a Google logout.${isGoogleOAuth ? ' This tool uses Google OAuth.' : ''}`)) {
+          if (isGoogleOAuth) {
+            // Open Google logout in a new tab, then redirect back
+            const logoutWindow = window.open('https://accounts.google.com/Logout', '_blank');
+            
+            // Show a message instructing the user
+            showMessage('Please complete the logout in the new tab, then close it and return here', 8000);
+            
+            // After a delay, ask if they want to test the tool
+            setTimeout(() => {
+              if (window.confirm('Would you like to test the tool now to verify you\'re logged out?')) {
+                // Use a custom event for safe navigation
+                window.dispatchEvent(new CustomEvent('navigate-to-tool', {
+                  detail: { toolId }
+                }));
+              }
+            }, 1000);
+          } else {
+            // For non-Google tools, just navigate to test
+            window.dispatchEvent(new CustomEvent('navigate-to-tool', {
+              detail: { toolId }
+            }));
+          }
+        }
+        
+        return;
+      } catch (err) {
+        console.error('Error clearing localStorage data:', err);
+        showMessage(`Error clearing data: ${err.message}`, 5000);
+        return;
+      }
+    }
+
+    // We have electron API, use it
+    console.log(`Clearing data for tool: ${toolId}`);
+    window.electron.clearToolData(toolId)
+      .then(result => {
+        console.log('Clear tool data result:', result);
+        if (result && result.success) {
+          showMessage(`Reset data for ${tool.name}`);
+          
+          // For Google OAuth tools, offer an additional logout step
+          if (isGoogleOAuth) {
+            if (window.confirm(`Data for ${tool.name} has been reset. For a complete Google account logout, click "Yes" to open the Google logout page.`)) {
+              // Open Google logout in a new tab
+              const logoutWindow = window.open('https://accounts.google.com/Logout', '_blank');
+              
+              // Show a message instructing the user
+              showMessage('Please complete the logout in the new tab, then close it and return here', 8000);
+              
+              // After a delay, ask if they want to test the tool
+              setTimeout(() => {
+                if (window.confirm('Would you like to test the tool now to verify you\'re logged out?')) {
+                  // Use a custom event for safe navigation
+                  window.dispatchEvent(new CustomEvent('navigate-to-tool', {
+                    detail: { toolId }
+                  }));
+                }
+              }, 1000);
+            } else {
+              // They declined the Google logout, ask if they want to test anyway
+              if (window.confirm('Would you like to test the tool now?')) {
+                window.dispatchEvent(new CustomEvent('navigate-to-tool', {
+                  detail: { toolId }
+                }));
+              }
+            }
+          } else {
+            // For non-Google tools, just ask if they want to test
+            if (window.confirm('Data has been reset. Would you like to test the tool now?')) {
+              window.dispatchEvent(new CustomEvent('navigate-to-tool', {
+                detail: { toolId }
+              }));
+            }
+          }
+        } else {
+          showMessage(`Error: ${result?.error || 'Unknown error'}`, 5000);
+        }
+      })
+      .catch(err => {
+        console.error('Error clearing tool data:', err);
+        showMessage(`Error: ${err.message}`, 5000);
+      });
+  };
+  
+  // Helper function to find a tool by ID
+  const findToolById = (toolId) => {
+    for (const category in categorizedTools) {
+      const tool = categorizedTools[category].find(t => t.id === toolId);
+      if (tool) return tool;
+    }
+    return null;
+  };
+
+  const handleResetAllData = () => {
+    // ... existing code ...
+  };
+
   // Utility function to show success/error messages
   const showMessage = (message, duration = 3000) => {
     setSuccessMessageContent(message);
@@ -774,9 +1117,184 @@ const Settings = () => {
     );
   };
 
+  // Get current app version on component mount
+  useEffect(() => {
+    const getAppVersion = async () => {
+      if (isElectron() && window.electron?.getAppVersion) {
+        try {
+          const result = await window.electron.getAppVersion();
+          if (result && result.version) {
+            setCurrentVersion(result.version);
+          }
+        } catch (error) {
+          console.error('Error getting app version:', error);
+        }
+      }
+    };
+
+    getAppVersion();
+  }, []);
+
+  // Setup update event listeners
+  useEffect(() => {
+    if (!isElectron() || !window.electron) return;
+    
+    const removeUpdateAvailableListener = window.electron.onUpdateAvailable?.((info) => {
+      setUpdateStatus('available');
+      setUpdateInfo(info);
+      showMessage('A new update is available!');
+    });
+    
+    const removeUpdateNotAvailableListener = window.electron.onUpdateNotAvailable?.((info) => {
+      setUpdateStatus('not-available');
+      showMessage('Your app is up to date');
+    });
+    
+    const removeUpdateErrorListener = window.electron.onUpdateError?.((info) => {
+      setUpdateStatus('error');
+      setUpdateError(info.error || 'Unknown error');
+      showMessage('Error checking for updates');
+    });
+    
+    const removeDownloadProgressListener = window.electron.onDownloadProgress?.((progressObj) => {
+      setUpdateStatus('downloading');
+      setUpdateProgress(progressObj.percent || 0);
+    });
+    
+    const removeUpdateDownloadedListener = window.electron.onUpdateDownloaded?.((info) => {
+      setUpdateStatus('downloaded');
+      setUpdateInfo(info);
+      showMessage('Update downloaded! Restart the app to install.');
+    });
+    
+    return () => {
+      removeUpdateAvailableListener?.();
+      removeUpdateNotAvailableListener?.();
+      removeUpdateErrorListener?.();
+      removeDownloadProgressListener?.();
+      removeUpdateDownloadedListener?.();
+    };
+  }, []);
+
+  const handleCheckForUpdates = async () => {
+    if (!isElectron() || !window.electron?.checkForUpdates) {
+      showMessage('Update checking is only available in the desktop app');
+      return;
+    }
+    
+    setUpdateStatus('checking');
+    setUpdateError('');
+    
+    try {
+      await window.electron.checkForUpdates();
+    } catch (error) {
+      setUpdateStatus('error');
+      setUpdateError(error.message || 'Unknown error');
+      showMessage('Error checking for updates');
+    }
+  };
+  
+  const handleDownloadUpdate = async () => {
+    if (!isElectron() || !window.electron?.downloadUpdate) {
+      return;
+    }
+    
+    setUpdateStatus('downloading');
+    setUpdateProgress(0);
+    
+    try {
+      await window.electron.downloadUpdate();
+    } catch (error) {
+      setUpdateStatus('error');
+      setUpdateError(error.message || 'Unknown error');
+      showMessage('Error downloading update');
+    }
+  };
+  
+  const renderUpdateStatus = () => {
+    switch (updateStatus) {
+      case 'idle':
+        return <p className="text-gray-500">Check for updates to see if a new version is available</p>;
+      case 'checking':
+        return <p className="text-blue-500">Checking for updates...</p>;
+      case 'available':
+        return (
+          <div>
+            <p className="text-green-500 mb-2">
+              New version available: {updateInfo?.version || 'Unknown'}
+            </p>
+            <button
+              onClick={handleDownloadUpdate}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Download Update
+            </button>
+          </div>
+        );
+      case 'not-available':
+        return <p className="text-green-500">Your app is up to date</p>;
+      case 'downloading':
+        return (
+          <div>
+            <p className="text-blue-500 mb-2">Downloading update: {Math.round(updateProgress)}%</p>
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div 
+                className="bg-blue-600 h-2.5 rounded-full" 
+                style={{ width: `${updateProgress}%` }}
+              ></div>
+            </div>
+          </div>
+        );
+      case 'downloaded':
+        return (
+          <div>
+            <p className="text-green-500 mb-2">
+              Update downloaded! Restart the app to install.
+            </p>
+            <button
+              onClick={() => window.close()}
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+            >
+              Restart Now
+            </button>
+          </div>
+        );
+      case 'error':
+        return <p className="text-red-500">Error: {updateError}</p>;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 settings-container">
       <h1 className="text-2xl font-bold mb-8">Settings</h1>
+      
+      {/* App Version and Updates */}
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold mb-4">App Updates</h2>
+        <div className="bg-white shadow overflow-hidden sm:rounded-lg p-4">
+          <div className="mb-4">
+            <p className="text-sm font-medium text-gray-700 mb-1">Current Version</p>
+            <p className="text-lg">{currentVersion || 'Unknown'}</p>
+          </div>
+          
+          <div className="mb-4">
+            <p className="text-sm font-medium text-gray-700 mb-1">Update Status</p>
+            {renderUpdateStatus()}
+          </div>
+          
+          {updateStatus !== 'downloading' && updateStatus !== 'downloaded' && (
+            <button
+              onClick={handleCheckForUpdates}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              disabled={updateStatus === 'checking'}
+            >
+              Check for Updates
+            </button>
+          )}
+        </div>
+      </div>
       
       {/* API Keys Section */}
       <div className="mb-8">
@@ -1454,14 +1972,25 @@ const Settings = () => {
                       <div className="font-medium">{site.name}</div>
                       <div className="text-sm text-gray-500">{site.url}</div>
                     </div>
-                    <button
-                      onClick={() => handleRemoveSite(site.id, 'llm')}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleResetToolData(site.id)}
+                        className="text-blue-600 hover:text-blue-800"
+                        title="Reset tool data"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleRemoveSite(site.id, 'llm')}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1477,14 +2006,25 @@ const Settings = () => {
                       <div className="font-medium">{site.name}</div>
                       <div className="text-sm text-gray-500">{site.url}</div>
                     </div>
-                    <button
-                      onClick={() => handleRemoveSite(site.id, 'image')}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleResetToolData(site.id)}
+                        className="text-green-600 hover:text-green-800"
+                        title="Reset tool data"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleRemoveSite(site.id, 'image')}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1500,14 +2040,25 @@ const Settings = () => {
                       <div className="font-medium">{site.name}</div>
                       <div className="text-sm text-gray-500">{site.url}</div>
                     </div>
-                    <button
-                      onClick={() => handleRemoveSite(site.id, 'video')}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleResetToolData(site.id)}
+                        className="text-red-600 hover:text-red-800"
+                        title="Reset tool data"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleRemoveSite(site.id, 'video')}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1523,14 +2074,25 @@ const Settings = () => {
                       <div className="font-medium">{site.name}</div>
                       <div className="text-sm text-gray-500">{site.url}</div>
                     </div>
-                    <button
-                      onClick={() => handleRemoveSite(site.id, 'audio')}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleResetToolData(site.id)}
+                        className="text-amber-600 hover:text-amber-800"
+                        title="Reset tool data"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleRemoveSite(site.id, 'audio')}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1547,14 +2109,25 @@ const Settings = () => {
                         <div className="font-medium">{site.name}</div>
                         <div className="text-sm text-gray-500">{site.url}</div>
                       </div>
-                      <button
-                        onClick={() => handleRemoveSite(site.id, 'other')}
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => handleResetToolData(site.id)}
+                          className="text-purple-600 hover:text-purple-800"
+                          title="Reset tool data"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleRemoveSite(site.id, 'other')}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   ))
                 ) : (

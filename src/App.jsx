@@ -654,6 +654,24 @@ const App = () => {
     }
   }, [location.pathname]);
   
+  // Add listener for custom navigation events from Settings page
+  useEffect(() => {
+    const handleToolNavigation = (event) => {
+      const { toolId } = event.detail;
+      console.log(`Custom navigation event received for tool: ${toolId}`);
+      
+      if (toolId) {
+        navigate(`/tools/${toolId}`);
+      }
+    };
+    
+    window.addEventListener('navigate-to-tool', handleToolNavigation);
+    
+    return () => {
+      window.removeEventListener('navigate-to-tool', handleToolNavigation);
+    };
+  }, [navigate]);
+  
   // Function to toggle between the two most recent tools
   const toggleRecentTools = () => {
     if (toolHistory.length >= 2) {

@@ -10,6 +10,7 @@ module.exports = {
     filename: 'bundle.js',
     publicPath: './'
   },
+  target: 'electron-renderer',
   module: {
     rules: [
       {
@@ -66,5 +67,10 @@ module.exports = {
     headers: {
       'Access-Control-Allow-Origin': '*'
     }
+  },
+  // Don't bundle electron dependencies
+  externals: {
+    'electron': 'commonjs electron',
+    'electron-updater': 'commonjs electron-updater'
   }
 }; 

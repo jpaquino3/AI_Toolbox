@@ -198,7 +198,10 @@ const WebViewPage = ({ aiTools }) => {
       return;
     }
     
-    // Determine tool type for UI customization
+    setCurrentTool(tool);
+    setUrl(tool.url);
+    
+    // Determine the tool type for styling
     if (tool.id.includes('chat') || tool.id.includes('claude') || tool.id.includes('perplexity')) {
       setToolType('llm');
     } else if (tool.id.includes('journey') || tool.id.includes('leonardo') || tool.id.includes('stability') || tool.id.includes('dalle')) {
@@ -211,9 +214,6 @@ const WebViewPage = ({ aiTools }) => {
       setToolType('other');
     }
     
-    setCurrentTool(tool);
-    setUrl(tool.url);
-    
     // Try to get the favicon
     try {
       const urlObj = new URL(tool.url);
@@ -224,6 +224,67 @@ const WebViewPage = ({ aiTools }) => {
       setFavicon(null);
     }
   }, [toolId, aiTools, navigate]);
+  
+  // Listen for tool data reset events
+  useEffect(() => {
+    const handleToolReset = (event) => {
+      const resetToolId = event.detail.toolId;
+      
+      // Only reload if this is the current tool
+      if (resetToolId === toolId) {
+        console.log(`Reloading webview for tool ${resetToolId}`);
+        
+        // Get the current webview
+        const webview = getCurrentWebviewRef();
+        if (webview) {
+          // Clear any in-memory data and reload the webview
+          try {
+            // First set loading state
+            setIsLoading(true);
+            
+            // Use stop/reload combination to ensure a fresh reload
+            webview.stop();
+            webview.reload();
+            
+            // For a more forceful reload, we can navigate to the URL again
+            setTimeout(() => {
+              if (currentTool && currentTool.url) {
+                console.log(`Forcing navigation to ${currentTool.url}`);
+                webview.loadURL(currentTool.url);
+              }
+            }, 100);
+          } catch (err) {
+            console.error('Error reloading webview:', err);
+          }
+        }
+      }
+    };
+    
+    // Listen for the custom event from Settings page
+    window.addEventListener('reload-tool-webview', handleToolReset);
+    
+    // Listen for the direct event from Electron main process
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.on('tool-data-cleared', (event, clearedToolId) => {
+        if (clearedToolId === toolId) {
+          console.log(`Received IPC event to reload tool ${clearedToolId}`);
+          
+          // Create a synthetic event to use the same handler
+          const syntheticEvent = {
+            detail: { toolId: clearedToolId }
+          };
+          handleToolReset(syntheticEvent);
+        }
+      });
+    }
+    
+    return () => {
+      window.removeEventListener('reload-tool-webview', handleToolReset);
+      if (window.electron?.ipcRenderer) {
+        window.electron.ipcRenderer.removeListener('tool-data-cleared');
+      }
+    };
+  }, [toolId, currentTool]);
   
   // Inject keyboard event handlers with highest priority
   useEffect(() => {
