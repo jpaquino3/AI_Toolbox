@@ -125,35 +125,31 @@ function createWindow() {
 
   // Load the index.html of the app
   if (isDev) {
-    // Add a slight delay to make sure webpack dev server is up
+    // Add a longer delay to make sure webpack dev server is up
     console.log('Waiting for webpack server...');
     setTimeout(() => {
       console.log('Loading URL: http://localhost:3001');
       mainWindow.loadURL('http://localhost:3001');
       
-      // Open the DevTools in development mode
-      setTimeout(() => {
-        mainWindow.webContents.openDevTools();
-      }, 2000);
-    }, 3000); // Increased delay to give webpack more time
+      // Open the DevTools in development mode immediately
+      mainWindow.webContents.openDevTools();
+      
+      // Add a load check
+      mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+        console.error('Failed to load:', errorDescription, 'Code:', errorCode);
+        // Try to reload after a delay
+        setTimeout(() => {
+          console.log('Attempting to reload after failure...');
+          mainWindow.loadURL('http://localhost:3001');
+        }, 2000);
+      });
+    }, 5000); // Increased delay to give webpack more time to start
   } else {
     const filePath = path.join(__dirname, 'build/index.html');
     console.log('Loading file:', filePath);
     mainWindow.loadFile(filePath);
   }
 
-  // Log any load failures
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-    console.error('Failed to load:', errorDescription, 'Code:', errorCode);
-    // Try to reload after a delay
-    setTimeout(() => {
-      if (mainWindow) {
-        console.log('Attempting to reload...');
-        mainWindow.loadURL('http://localhost:3001');
-      }
-    }, 3000);
-  });
-  
   // Debug content
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('Page finished loading');

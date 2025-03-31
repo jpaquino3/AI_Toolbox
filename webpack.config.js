@@ -66,6 +66,23 @@ module.exports = {
     },
     headers: {
       'Access-Control-Allow-Origin': '*'
+    },
+    host: 'localhost',
+    allowedHosts: 'all',
+    client: {
+      logging: 'info',
+      overlay: true,
+    },
+    setupMiddlewares: (middlewares, devServer) => {
+      if (!devServer) {
+        throw new Error('webpack-dev-server is not defined');
+      }
+
+      devServer.app.get('/status', (_, response) => {
+        response.json({ status: 'webpack-dev-server is running' });
+      });
+
+      return middlewares;
     }
   },
   // Don't bundle electron dependencies
