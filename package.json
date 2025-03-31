@@ -16,10 +16,10 @@
   },
   "build": {
     "appId": "com.aifm.toolbox",
-    "productName": "AI Toolbox",
+    "productName": "AI-Toolbox",
     "mac": {
       "category": "public.app-category.productivity",
-      "target": "dmg",
+      "target": ["dmg", "zip"],
       "icon": "AppIcon.icns",
       "extraFiles": [
         {
