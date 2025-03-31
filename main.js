@@ -44,8 +44,14 @@ autoUpdater.setFeedURL({
   repo: 'AI_Toolbox'
 });
 
+// Check if we should simulate updates (for testing)
+const shouldSimulateUpdate = process.env.SIMULATE_UPDATE === 'true';
+if (shouldSimulateUpdate) {
+  console.log('Update simulation mode is enabled');
+}
+
 // In development mode, add mock update functions for testing
-if (isDev) {
+if (isDev || shouldSimulateUpdate) {
   // These functions help simulate the update process during development
   global.mockUpdateAvailable = () => {
     console.log('Mocking update-available event');
@@ -76,6 +82,14 @@ if (isDev) {
       app.exit(0);
     });
   };
+  
+  // For simulation mode, trigger events automatically
+  if (shouldSimulateUpdate) {
+    setTimeout(() => {
+      console.log('Auto-triggering update-available event (simulation)');
+      global.mockUpdateAvailable();
+    }, 5000);
+  }
 }
 
 // At the beginning of file, add a comment to remind about the Info.plist update
@@ -125,28 +139,26 @@ function createWindow() {
 
   // Load the index.html of the app
   if (isDev) {
-    // Add a longer delay to make sure webpack dev server is up
-    console.log('Waiting for webpack server...');
-    setTimeout(() => {
-      console.log('Loading URL: http://localhost:3001');
-      mainWindow.loadURL('http://localhost:3001');
-      
-      // Open the DevTools in development mode immediately
-      mainWindow.webContents.openDevTools();
-      
-      // Add a load check
-      mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-        console.error('Failed to load:', errorDescription, 'Code:', errorCode);
-        // Try to reload after a delay
-        setTimeout(() => {
-          console.log('Attempting to reload after failure...');
-          mainWindow.loadURL('http://localhost:3001');
-        }, 2000);
+    console.log('Development mode: Using dev-index.html');
+    // In development mode, load our special development HTML file
+    // which will then load the bundle from webpack dev server
+    const devIndexPath = path.join(__dirname, 'dev-index.html');
+    console.log('Loading dev index from:', devIndexPath);
+    
+    mainWindow.loadFile(devIndexPath)
+      .then(() => {
+        console.log('Dev index loaded successfully');
+        // Open DevTools in development mode
+        mainWindow.webContents.openDevTools();
+      })
+      .catch((err) => {
+        console.error('Failed to load dev-index.html:', err);
+        // Fall back to direct webpack URL as last resort
+        mainWindow.loadURL('http://localhost:3001');
       });
-    }, 5000); // Increased delay to give webpack more time to start
   } else {
     const filePath = path.join(__dirname, 'build/index.html');
-    console.log('Loading file:', filePath);
+    console.log('Production mode: Loading file:', filePath);
     mainWindow.loadFile(filePath);
   }
 
