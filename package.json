@@ -1,6 +1,6 @@
 {
   "name": "ai-toolbox",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "An AI tools dashboard for managing and accessing various AI generation platforms",
   "main": "main.js",
   "scripts": {
@@ -65,7 +65,8 @@
     "publish": [{
       "provider": "github",
       "owner": "jpaquino3",
-      "repo": "AI_Toolbox"
+      "repo": "AI_Toolbox",
+      "releaseType": "release"
     }]
   },
   "keywords": [

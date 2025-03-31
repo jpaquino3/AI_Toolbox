@@ -816,6 +816,13 @@ function setupIPC() {
       return { success: false, error: error.message };
     }
   });
+  
+  // Handle quit and install
+  ipcMain.handle('quit-and-install', () => {
+    console.log('Quitting and installing update...');
+    autoUpdater.quitAndInstall(false, true);
+    return { success: true };
+  });
 
   // Get current app version
   ipcMain.handle('get-app-version', () => {

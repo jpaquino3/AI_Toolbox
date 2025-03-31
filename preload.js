@@ -215,6 +215,15 @@ try {
         }
       },
       
+      quitAndInstall: async () => {
+        try {
+          return await ipcRenderer.invoke('quit-and-install');
+        } catch (err) {
+          console.error('Error in quitAndInstall:', err);
+          return { success: false, error: err.message };
+        }
+      },
+      
       getAppVersion: async () => {
         try {
           return await ipcRenderer.invoke('get-app-version');

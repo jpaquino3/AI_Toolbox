@@ -1211,6 +1211,21 @@ const Settings = () => {
     }
   };
   
+  const handleRestartForUpdate = async () => {
+    if (!isElectron() || !window.electron?.quitAndInstall) {
+      showMessage('Update installation is only available in the desktop app');
+      return;
+    }
+    
+    try {
+      await window.electron.quitAndInstall();
+    } catch (error) {
+      console.error('Error installing update:', error);
+      setUpdateError(error.message || 'Unknown error');
+      showMessage('Error installing update');
+    }
+  };
+  
   const renderUpdateStatus = () => {
     switch (updateStatus) {
       case 'idle':
@@ -1252,7 +1267,7 @@ const Settings = () => {
               Update downloaded! Restart the app to install.
             </p>
             <button
-              onClick={() => window.close()}
+              onClick={handleRestartForUpdate}
               className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
             >
               Restart Now
