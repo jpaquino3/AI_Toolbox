@@ -1212,13 +1212,20 @@ const Settings = () => {
   };
   
   const handleRestartForUpdate = async () => {
+    console.log('handleRestartForUpdate called');
     if (!isElectron() || !window.electron?.quitAndInstall) {
+      console.log('Electron or quitAndInstall not available', { 
+        isElectron: isElectron(),
+        hasQuitAndInstall: Boolean(window.electron?.quitAndInstall)
+      });
       showMessage('Update installation is only available in the desktop app');
       return;
     }
     
     try {
-      await window.electron.quitAndInstall();
+      console.log('Calling window.electron.quitAndInstall()');
+      const result = await window.electron.quitAndInstall();
+      console.log('quitAndInstall result:', result);
     } catch (error) {
       console.error('Error installing update:', error);
       setUpdateError(error.message || 'Unknown error');
@@ -1307,6 +1314,52 @@ const Settings = () => {
             >
               Check for Updates
             </button>
+          )}
+          
+          {/* Debug buttons only in development */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-4 p-3 border border-gray-300 rounded bg-gray-50">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">Debug Controls</h3>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={async () => {
+                    if (window.electron?.mockUpdateAvailable) {
+                      await window.electron.mockUpdateAvailable();
+                      setUpdateStatus('available');
+                      setUpdateInfo({ version: '99.0.0' });
+                    }
+                  }}
+                  className="bg-yellow-600 text-white px-3 py-1 text-sm rounded hover:bg-yellow-700"
+                >
+                  Mock Update Available
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    if (window.electron?.mockUpdateProgress) {
+                      await window.electron.mockUpdateProgress(50);
+                      setUpdateStatus('downloading');
+                      setUpdateProgress(50);
+                    }
+                  }}
+                  className="bg-yellow-600 text-white px-3 py-1 text-sm rounded hover:bg-yellow-700"
+                >
+                  Mock Download Progress
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    if (window.electron?.mockUpdateDownloaded) {
+                      await window.electron.mockUpdateDownloaded();
+                      setUpdateStatus('downloaded');
+                    }
+                  }}
+                  className="bg-yellow-600 text-white px-3 py-1 text-sm rounded hover:bg-yellow-700"
+                >
+                  Mock Update Downloaded
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>

@@ -44,6 +44,40 @@ autoUpdater.setFeedURL({
   repo: 'AI_Toolbox'
 });
 
+// In development mode, add mock update functions for testing
+if (isDev) {
+  // These functions help simulate the update process during development
+  global.mockUpdateAvailable = () => {
+    console.log('Mocking update-available event');
+    autoUpdater.emit('update-available', { version: '99.0.0', releaseDate: new Date().toISOString() });
+  };
+  
+  global.mockUpdateDownloaded = () => {
+    console.log('Mocking update-downloaded event');
+    autoUpdater.emit('update-downloaded', { version: '99.0.0', releaseDate: new Date().toISOString() });
+  };
+  
+  global.mockUpdateProgress = (percent) => {
+    console.log(`Mocking download-progress event: ${percent}%`);
+    autoUpdater.emit('download-progress', { percent: percent || 50 });
+  };
+  
+  // Log all quit-and-install calls
+  autoUpdater.quitAndInstall = (...args) => {
+    console.log('quitAndInstall called with args:', args);
+    console.log('Would normally quit and install here');
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Simulation',
+      message: 'In production, this would quit and install the update. App will restart now.',
+      buttons: ['OK']
+    }).then(() => {
+      app.relaunch();
+      app.exit(0);
+    });
+  };
+}
+
 // At the beginning of file, add a comment to remind about the Info.plist update
 // IMPORTANT: To fix the camera API deprecation warning, add NSCameraUseContinuityCameraDeviceType 
 // to your Info.plist when packaging the app for production
@@ -828,6 +862,24 @@ function setupIPC() {
   ipcMain.handle('get-app-version', () => {
     return { version: app.getVersion() };
   });
+  
+  // DEBUG: Add mock update handlers (only in development)
+  if (isDev) {
+    ipcMain.handle('mock-update-available', () => {
+      global.mockUpdateAvailable();
+      return { success: true };
+    });
+    
+    ipcMain.handle('mock-update-downloaded', () => {
+      global.mockUpdateDownloaded();
+      return { success: true };
+    });
+    
+    ipcMain.handle('mock-update-progress', (event, percent) => {
+      global.mockUpdateProgress(percent);
+      return { success: true };
+    });
+  }
 }
 
 // Setup auto updater events

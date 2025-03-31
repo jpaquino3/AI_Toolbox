@@ -263,6 +263,34 @@ try {
         return () => ipcRenderer.removeListener('update-downloaded', handler);
       },
       
+      // Debug methods for testing update process (only available in development)
+      mockUpdateAvailable: async () => {
+        try {
+          return await ipcRenderer.invoke('mock-update-available');
+        } catch (err) {
+          console.error('Error in mockUpdateAvailable:', err);
+          return { success: false, error: err.message };
+        }
+      },
+      
+      mockUpdateDownloaded: async () => {
+        try {
+          return await ipcRenderer.invoke('mock-update-downloaded');
+        } catch (err) {
+          console.error('Error in mockUpdateDownloaded:', err);
+          return { success: false, error: err.message };
+        }
+      },
+      
+      mockUpdateProgress: async (percent) => {
+        try {
+          return await ipcRenderer.invoke('mock-update-progress', percent);
+        } catch (err) {
+          console.error('Error in mockUpdateProgress:', err);
+          return { success: false, error: err.message };
+        }
+      },
+      
       // Add a simple property to check if Electron is available
       isAvailable: true
     }
