@@ -1,9 +1,13 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const webpack = require('webpack');
 
-module.exports = {
-  mode: 'development',
+module.exports = (env, argv) => {
+  const mode = argv.mode || 'development';
+  
+  return {
+  mode,
   entry: './src/index.js',
   output: {
     path: path.resolve(__dirname, 'build'),
@@ -52,6 +56,10 @@ module.exports = {
           }
         }
       ]
+    }),
+    new webpack.DefinePlugin({
+      'process.env.NODE_ENV': JSON.stringify(mode),
+      'APP_VERSION': JSON.stringify(require('./package.json').version)
     })
   ],
   devServer: {
@@ -90,4 +98,5 @@ module.exports = {
     'electron': 'commonjs electron',
     'electron-updater': 'commonjs electron-updater'
   }
+ };
 }; 

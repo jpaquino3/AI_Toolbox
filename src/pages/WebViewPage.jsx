@@ -190,8 +190,53 @@ const WebViewPage = ({ aiTools }) => {
   const [favicon, setFavicon] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   
-  // Find tool based on toolId
+  // Find tool based on toolId or direct aiTools prop
   useEffect(() => {
+    // If only one tool is passed directly (for split-screen mode)
+    if (aiTools.length === 1) {
+      const tool = aiTools[0];
+      setCurrentTool(tool);
+      setUrl(tool.url);
+      
+      // Determine the tool type for styling
+      if (tool.id.includes('chat') || tool.id.includes('claude') || tool.id.includes('perplexity')) {
+        setToolType('llm');
+      } else if (tool.id.includes('journey') || tool.id.includes('leonardo') || tool.id.includes('stability') || tool.id.includes('dalle')) {
+        setToolType('image');
+      } else if (tool.id.includes('runway') || tool.id.includes('pika') || tool.id.includes('gen2')) {
+        setToolType('video');
+      } else if (tool.id.includes('eleven') || tool.id.includes('mubert') || tool.id.includes('sound')) {
+        setToolType('audio');
+      } else {
+        setToolType('other');
+      }
+      
+      // Try to get the favicon
+      try {
+        const urlObj = new URL(tool.url);
+        // Get the hostname parts to handle subdomains properly
+        const hostname = urlObj.hostname;
+        
+        // Try multiple common favicon locations
+        const faviconOptions = [
+          `${urlObj.protocol}//${hostname}/favicon.ico`,
+          `${urlObj.protocol}//${hostname}/favicon.png`,
+          `${urlObj.protocol}//${hostname}/apple-touch-icon.png`,
+          `${urlObj.protocol}//${hostname}/apple-touch-icon-precomposed.png`,
+          `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
+        ];
+        
+        // Use the first option for now, the img onError will handle fallback
+        setFavicon(faviconOptions[0]);
+      } catch (error) {
+        console.error('Error parsing URL for favicon:', error);
+        setFavicon(null);
+      }
+      
+      return;
+    }
+    
+    // Otherwise, find tool by toolId from URL param
     const tool = aiTools.find(tool => tool.id === toolId);
     if (!tool) {
       navigate('/');
@@ -217,14 +262,26 @@ const WebViewPage = ({ aiTools }) => {
     // Try to get the favicon
     try {
       const urlObj = new URL(tool.url);
-      const faviconUrl = `${urlObj.protocol}//${urlObj.hostname}/favicon.ico`;
-      setFavicon(faviconUrl);
+      // Get the hostname parts to handle subdomains properly
+      const hostname = urlObj.hostname;
+      
+      // Try multiple common favicon locations
+      const faviconOptions = [
+        `${urlObj.protocol}//${hostname}/favicon.ico`,
+        `${urlObj.protocol}//${hostname}/favicon.png`,
+        `${urlObj.protocol}//${hostname}/apple-touch-icon.png`,
+        `${urlObj.protocol}//${hostname}/apple-touch-icon-precomposed.png`,
+        `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
+      ];
+      
+      // Use the first option for now, the img onError will handle fallback
+      setFavicon(faviconOptions[0]);
     } catch (error) {
       console.error('Error parsing URL for favicon:', error);
       setFavicon(null);
     }
   }, [toolId, aiTools, navigate]);
-  
+
   // Listen for tool data reset events
   useEffect(() => {
     const handleToolReset = (event) => {
@@ -701,9 +758,39 @@ const WebViewPage = ({ aiTools }) => {
           src={favicon} 
           alt={currentTool?.name || 'Tool'} 
           style={{width: '1.25rem', height: '1.25rem'}}
-          onError={() => {
-            console.log('Favicon failed to load, using fallback');
-            setFavicon(null);
+          crossOrigin="anonymous"
+          onError={(e) => {
+            console.log('Favicon failed to load, trying alternative locations or using fallback');
+            
+            // Extract the current URL to determine which alternative to try next
+            const currentSrc = e.target.src;
+            
+            try {
+              const urlObj = new URL(currentTool.url);
+              
+              // Try alternative favicon locations in sequence
+              if (currentSrc.endsWith('/favicon.ico')) {
+                e.target.src = `${urlObj.protocol}//${urlObj.hostname}/favicon.png`;
+              } else if (currentSrc.endsWith('/favicon.png')) {
+                e.target.src = `${urlObj.protocol}//${urlObj.hostname}/apple-touch-icon.png`;
+              } else if (currentSrc.endsWith('/apple-touch-icon.png')) {
+                e.target.src = `${urlObj.protocol}//${urlObj.hostname}/apple-touch-icon-precomposed.png`;
+              } else if (currentSrc.endsWith('/apple-touch-icon-precomposed.png')) {
+                // Try to use Google's favicon service directly
+                const hostname = urlObj.hostname;
+                e.target.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+              } else if (currentSrc.includes('google.com/s2/favicons')) {
+                // If Google's service also fails, fall back to default
+                setFavicon(null);
+              } else {
+                // If we're here with an unknown path, try Google's service
+                const hostname = urlObj.hostname;
+                e.target.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+              }
+            } catch (error) {
+              console.error('Error setting alternative favicon:', error);
+              setFavicon(null);
+            }
           }}
         />
       );
@@ -1301,52 +1388,34 @@ const WebViewPage = ({ aiTools }) => {
             input.style.outline = '2px solid #4f46e5';
             input.style.boxShadow = '0 0 0 4px rgba(79, 70, 229, 0.4)';
             
-            // Find the most clickable parent (often the input is hidden behind a button)
-            let parent = input;
-            for (let i = 0; i < 3; i++) {
-              if (!parent.parentElement) break;
-              parent = parent.parentElement;
-              if (parent.tagName === 'BUTTON' || 
-                  parent.getAttribute('role') === 'button' ||
-                  window.getComputedStyle(parent).cursor === 'pointer') {
-                parent.style.outline = '2px solid #4f46e5';
-                parent.style.boxShadow = '0 0 0 4px rgba(79, 70, 229, 0.4)';
-                
-                // Add a more visible hint
-                const rect = parent.getBoundingClientRect();
-                const hint = document.createElement('div');
-                hint.textContent = 'Click here to upload';
-                hint.style.position = 'absolute';
-                hint.style.top = (rect.top - 30) + 'px';
-                hint.style.left = (rect.left + rect.width/2 - 60) + 'px';
-                hint.style.backgroundColor = '#4f46e5';
-                hint.style.color = 'white';
-                hint.style.padding = '5px 10px';
-                hint.style.borderRadius = '4px';
-                hint.style.fontSize = '12px';
-                hint.style.zIndex = '10000';
-                document.body.appendChild(hint);
-                
-                // Remove hint after 8 seconds
-                setTimeout(() => {
-                  if (document.body.contains(hint)) {
-                    document.body.removeChild(hint);
-                  }
-                }, 8000);
-                
-                break;
-              }
-            }
+            // Add pulsing animation
+            input.style.animation = 'pulse 2s infinite';
             
-            // Restore original styles after 8 seconds
+            // Create a hint tooltip near the element
+            const rect = input.getBoundingClientRect();
+            const hint = document.createElement('div');
+            hint.textContent = 'Try here!';
+            hint.style.position = 'absolute';
+            hint.style.left = rect.right + 'px';
+            hint.style.top = rect.top + 'px';
+            hint.style.backgroundColor = '#4f46e5';
+            hint.style.color = 'white';
+            hint.style.padding = '4px 8px';
+            hint.style.borderRadius = '4px';
+            hint.style.fontSize = '12px';
+            hint.style.zIndex = '10000';
+            hint.style.pointerEvents = 'none';
+            document.body.appendChild(hint);
+            
+            // Restore original styles after 5 seconds
             setTimeout(() => {
               input.style.outline = originalOutline;
               input.style.boxShadow = originalBoxShadow;
-              if (parent !== input) {
-                parent.style.outline = '';
-                parent.style.boxShadow = '';
+              input.style.animation = '';
+              if (document.body.contains(hint)) {
+                document.body.removeChild(hint);
               }
-            }, 8000);
+            }, 5000);
           });
           
           return true;

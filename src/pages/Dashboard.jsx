@@ -248,8 +248,20 @@ const ToolCard = ({ tool, type, onClick }) => {
     if (tool.url) {
       try {
         const urlObj = new URL(tool.url);
-        const faviconUrl = `${urlObj.protocol}//${urlObj.hostname}/favicon.ico`;
-        setFavicon(faviconUrl);
+        // Get the hostname parts to handle subdomains properly
+        const hostname = urlObj.hostname;
+        
+        // Try multiple common favicon locations
+        const faviconOptions = [
+          `${urlObj.protocol}//${hostname}/favicon.ico`,
+          `${urlObj.protocol}//${hostname}/favicon.png`,
+          `${urlObj.protocol}//${hostname}/apple-touch-icon.png`,
+          `${urlObj.protocol}//${hostname}/apple-touch-icon-precomposed.png`,
+          `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
+        ];
+        
+        // Use the first option for now, the img onError will handle fallback
+        setFavicon(faviconOptions[0]);
       } catch (error) {
         console.error('Error parsing URL for favicon:', error);
         setFavicon(null);
@@ -288,9 +300,39 @@ const ToolCard = ({ tool, type, onClick }) => {
             src={favicon} 
             alt={tool.name} 
             style={{width: '1.5rem', height: '1.5rem'}}
-            onError={() => {
-              console.log('Favicon failed to load, using fallback for', tool.name);
-              setFaviconError(true);
+            crossOrigin="anonymous"
+            onError={(e) => {
+              console.log('Favicon failed to load, trying alternative locations or using fallback for', tool.name);
+              
+              // Extract the current URL to determine which alternative to try next
+              const currentSrc = e.target.src;
+              
+              try {
+                const urlObj = new URL(tool.url);
+                
+                // Try alternative favicon locations in sequence
+                if (currentSrc.endsWith('/favicon.ico')) {
+                  e.target.src = `${urlObj.protocol}//${urlObj.hostname}/favicon.png`;
+                } else if (currentSrc.endsWith('/favicon.png')) {
+                  e.target.src = `${urlObj.protocol}//${urlObj.hostname}/apple-touch-icon.png`;
+                } else if (currentSrc.endsWith('/apple-touch-icon.png')) {
+                  e.target.src = `${urlObj.protocol}//${urlObj.hostname}/apple-touch-icon-precomposed.png`;
+                } else if (currentSrc.endsWith('/apple-touch-icon-precomposed.png')) {
+                  // Try to use Google's favicon service directly
+                  const hostname = urlObj.hostname;
+                  e.target.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+                } else if (currentSrc.includes('google.com/s2/favicons')) {
+                  // If Google's service also fails, fall back to default
+                  setFaviconError(true);
+                } else {
+                  // If we're here with an unknown path, try Google's service
+                  const hostname = urlObj.hostname;
+                  e.target.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+                }
+              } catch (error) {
+                console.error('Error setting alternative favicon:', error);
+                setFaviconError(true);
+              }
             }}
           />
         </div>

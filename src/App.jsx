@@ -3,7 +3,7 @@ import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
 import Dashboard from './pages/Dashboard';
 import WebViewPage from './pages/WebViewPage';
 import AiAssistant from './pages/AiAssistant';
-import Settings from './pages/Settings';
+import SettingsNew from './pages/SettingsNew';
 import ChatWidget from './components/ChatWidget';
 import MediaLibrary from './components/MediaLibrary';
 import textIcon from './assets/icons/text.svg';
@@ -405,77 +405,147 @@ const styles = {
   },
 };
 
-const NavLinkWithFavicon = ({ tool, sidebarOpen }) => {
+// Add these styles for the context menu
+const contextMenuStyles = {
+  container: {
+    position: 'fixed',
+    backgroundColor: 'white',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+    borderRadius: '4px',
+    padding: '4px 0',
+    zIndex: 9999
+  },
+  item: {
+    padding: '8px 16px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    transition: 'background-color 0.2s ease'
+  },
+  itemHover: {
+    backgroundColor: '#f3f4f6'
+  }
+};
+
+const NavLinkWithFavicon = ({ tool, sidebarOpen, onContextMenu }) => {
+  // Get current location to determine if link is active
+  const location = useLocation();
+  const isActive = location.pathname === `/tools/${tool.id}`;
+  const [isHovered, setIsHovered] = useState(false);
   const [favicon, setFavicon] = useState(null);
   const [faviconError, setFaviconError] = useState(false);
-  const [type, setType] = useState('llm');
-
-  // Determine the tool type for fallback icons
-  useEffect(() => {
-    if (tool.id.includes('chat') || tool.id.includes('claude') || tool.id.includes('perplexity')) {
-      setType('llm');
-    } else if (tool.id.includes('journey') || tool.id.includes('leonardo') || tool.id.includes('stability') || tool.id.includes('dalle')) {
-      setType('image');
-    } else if (tool.id.includes('runway') || tool.id.includes('pika') || tool.id.includes('gen2')) {
-      setType('video');
-    } else if (tool.id.includes('eleven') || tool.id.includes('mubert') || tool.id.includes('sound')) {
-      setType('audio');
-    } else {
-      setType('other');
-    }
-  }, [tool.id]);
-
-  // Get favicon on component mount
+  
+  // Try to get favicon when component mounts
   useEffect(() => {
     if (tool.url) {
       try {
         const urlObj = new URL(tool.url);
-        const faviconUrl = `${urlObj.protocol}//${urlObj.hostname}/favicon.ico`;
-        setFavicon(faviconUrl);
+        // Get the hostname parts to handle subdomains properly
+        const hostname = urlObj.hostname;
+        
+        // Try multiple common favicon locations
+        const faviconOptions = [
+          `${urlObj.protocol}//${hostname}/favicon.ico`,
+          `${urlObj.protocol}//${hostname}/favicon.png`,
+          `${urlObj.protocol}//${hostname}/apple-touch-icon.png`,
+          `${urlObj.protocol}//${hostname}/apple-touch-icon-precomposed.png`,
+          `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`
+        ];
+        
+        // Use the first option for now, the img onError will handle fallback
+        setFavicon(faviconOptions[0]);
       } catch (error) {
         console.error('Error parsing URL for favicon:', error);
         setFavicon(null);
       }
     }
   }, [tool.url]);
-
-  // Get the appropriate icon to display
+  
+  // Combine styles for active/inactive state
+  const linkStyle = {
+    ...styles.navLink,
+    ...(isActive ? styles.activeNavLink : {}),
+    ...(isHovered && !isActive ? { backgroundColor: 'rgba(31, 41, 55, 0.5)' } : {})
+  };
+  
   const getIcon = () => {
-    // Use favicon if available and hasn't errored
+    // First try to use the favicon if it exists and hasn't errored
     if (favicon && !faviconError) {
       return (
         <img 
           src={favicon} 
           alt={tool.name} 
-          style={styles.navIcon}
-          onError={() => {
-            console.log('Favicon failed to load, using fallback for', tool.name);
-            setFaviconError(true);
+          style={styles.navIcon} 
+          crossOrigin="anonymous"
+          onError={(e) => {
+            console.log('Favicon failed to load, trying alternative locations or using fallback for', tool.name);
+            
+            // Extract the current URL to determine which alternative to try next
+            const currentSrc = e.target.src;
+            
+            try {
+              const urlObj = new URL(tool.url);
+              
+              // Try alternative favicon locations in sequence
+              if (currentSrc.endsWith('/favicon.ico')) {
+                e.target.src = `${urlObj.protocol}//${urlObj.hostname}/favicon.png`;
+              } else if (currentSrc.endsWith('/favicon.png')) {
+                e.target.src = `${urlObj.protocol}//${urlObj.hostname}/apple-touch-icon.png`;
+              } else if (currentSrc.endsWith('/apple-touch-icon.png')) {
+                e.target.src = `${urlObj.protocol}//${urlObj.hostname}/apple-touch-icon-precomposed.png`;
+              } else if (currentSrc.endsWith('/apple-touch-icon-precomposed.png')) {
+                // Try to use Google's favicon service directly
+                const hostname = urlObj.hostname;
+                e.target.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+              } else if (currentSrc.includes('google.com/s2/favicons')) {
+                // If Google's service also fails, fall back to default
+                setFaviconError(true);
+              } else {
+                // If we're here with an unknown path, try Google's service
+                const hostname = urlObj.hostname;
+                e.target.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+              }
+            } catch (error) {
+              console.error('Error setting alternative favicon:', error);
+              setFaviconError(true);
+            }
           }}
         />
       );
     }
-
-    // Fallback to type-based icons with custom styling
-    if (type === 'llm') {
-      return <img src={textIcon} alt="Text" style={{...styles.navIcon, backgroundColor: 'rgba(59, 130, 246, 0.3)'}} />;
-    } else if (type === 'image') {
-      return <img src={imageIcon} alt="Image" style={{...styles.navIcon, backgroundColor: 'rgba(16, 185, 129, 0.3)'}} />;
-    } else if (type === 'video') {
-      return <img src={videoIcon} alt="Video" style={{...styles.navIcon, backgroundColor: 'rgba(239, 68, 68, 0.3)'}} />;
-    } else if (type === 'audio') {
-      return <img src={audioIcon} alt="Audio" style={{...styles.navIcon, backgroundColor: 'rgba(245, 158, 11, 0.3)'}} />;
-    } else {
-      return <img src={otherIcon} alt="Other" style={{...styles.navIcon, backgroundColor: 'rgba(168, 85, 247, 0.3)'}} />;
+    
+    // Fallback to type-based icons
+    // Check if ID is in common LLM tools
+    if (tool.id.includes('chatgpt') || tool.id.includes('claude') || tool.id.includes('perplexity')) {
+      return <img src={textIcon} alt="Text Icon" style={styles.navIcon} />;
     }
+    
+    // Check if ID is in common image tools
+    if (tool.id.includes('midjourney') || tool.id.includes('stable') || tool.id.includes('dalle')) {
+      return <img src={imageIcon} alt="Image Icon" style={styles.navIcon} />;
+    }
+    
+    // Check if ID is in common video tools
+    if (tool.id.includes('runway') || tool.id.includes('pika') || tool.id.includes('gen2')) {
+      return <img src={videoIcon} alt="Video Icon" style={styles.navIcon} />;
+    }
+    
+    // Check if ID is in common audio tools
+    if (tool.id.includes('eleven') || tool.id.includes('mubert') || tool.id.includes('sound')) {
+      return <img src={audioIcon} alt="Audio Icon" style={styles.navIcon} />;
+    }
+    
+    // Default icon
+    return <img src={otherIcon} alt="Other Icon" style={styles.navIcon} />;
   };
-
+  
   return (
     <Link 
-      key={tool.id}
       to={`/tools/${tool.id}`} 
-      style={styles.navLink}
-      className={`nav-link ${type}-link`}
+      style={linkStyle}
+      className={`nav-link ${isHovered ? 'nav-link-hovered' : ''}`}
+      onContextMenu={(e) => onContextMenu && onContextMenu(e, tool)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {getIcon()}
       {sidebarOpen && <span>{tool.name}</span>}
@@ -488,6 +558,12 @@ const App = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [notepadOpen, setNotepadOpen] = useState(false);
   const keybindingsRegistered = useRef(false);
+  // Split-screen state
+  const [splitScreenTool, setSplitScreenTool] = useState(null);
+  const [splitScreenVisible, setSplitScreenVisible] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, tool: null });
+  const splitResizeRef = useRef(null);
   // Updated notes state
   const [notes, setNotes] = useState(() => {
     const savedNotes = localStorage.getItem('notepadNotes');
@@ -1106,6 +1182,26 @@ const App = () => {
     localStorage.setItem('activeNoteId', activeNoteId.toString());
   }, [activeNoteId]);
 
+  // Enable webview file drops
+  useEffect(() => {
+    // Check if we have the Electron API available
+    if (window.electron?.enableWebviewDrops) {
+      console.log('Enabling webview file drops');
+      
+      // Initial setup
+      window.electron.enableWebviewDrops();
+      
+      // Set up a periodic check for new webviews (they might be loaded dynamically)
+      const webviewDropInterval = setInterval(() => {
+        window.electron.enableWebviewDrops();
+      }, 5000);
+      
+      return () => {
+        clearInterval(webviewDropInterval);
+      };
+    }
+  }, []);
+
   // Get the active note
   const getActiveNote = () => {
     return notes.find(note => note.id === activeNoteId) || { id: 0, title: '', content: '' };
@@ -1225,6 +1321,66 @@ const App = () => {
   const notepadBtnRef = useRef(null);
   const mediaLibraryBtnRef = useRef(null);
 
+  // State for context menu item hover
+  const [contextMenuItemHover, setContextMenuItemHover] = useState(false);
+
+  // Handle right-click on tool link
+  const handleToolContextMenu = (e, tool) => {
+    e.preventDefault();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      tool
+    });
+  };
+
+  // Handle closing context menu
+  const handleCloseContextMenu = () => {
+    setContextMenu({ visible: false, x: 0, y: 0, tool: null });
+  };
+
+  // Handle opening tool in split-screen
+  const handleOpenInSplitScreen = (tool) => {
+    setSplitScreenTool(tool);
+    setSplitScreenVisible(true);
+    handleCloseContextMenu();
+  };
+
+  // Handle close split-screen view
+  const handleCloseSplitScreen = () => {
+    setSplitScreenVisible(false);
+    setSplitScreenTool(null);
+  };
+
+  // Handle split-screen resize
+  const handleSplitResize = (e) => {
+    if (splitResizeRef.current) {
+      const container = splitResizeRef.current.parentElement;
+      const containerWidth = container.offsetWidth;
+      const mouseX = e.clientX;
+      const newRatio = Math.max(0.2, Math.min(0.8, mouseX / containerWidth));
+      setSplitRatio(newRatio);
+    }
+  };
+
+  // Start resizing
+  const startResize = (e) => {
+    e.preventDefault();
+    
+    const handleMouseMove = (moveEvent) => {
+      handleSplitResize(moveEvent);
+    };
+    
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
   return (
     <div style={styles.container} className="app-container">
       {/* Sidebar */}
@@ -1259,7 +1415,12 @@ const App = () => {
               {sidebarOpen ? 'LLM TOOLS' : ''}
             </div>
             {aiTools.llm.map(tool => (
-              <NavLinkWithFavicon key={tool.id} tool={tool} sidebarOpen={sidebarOpen} />
+              <NavLinkWithFavicon 
+                key={tool.id} 
+                tool={tool} 
+                sidebarOpen={sidebarOpen} 
+                onContextMenu={handleToolContextMenu}
+              />
             ))}
           </div>
           
@@ -1269,7 +1430,12 @@ const App = () => {
               {sidebarOpen ? 'IMAGE TOOLS' : ''}
             </div>
             {aiTools.image.map(tool => (
-              <NavLinkWithFavicon key={tool.id} tool={tool} sidebarOpen={sidebarOpen} />
+              <NavLinkWithFavicon 
+                key={tool.id} 
+                tool={tool} 
+                sidebarOpen={sidebarOpen} 
+                onContextMenu={handleToolContextMenu}
+              />
             ))}
           </div>
           
@@ -1279,7 +1445,12 @@ const App = () => {
               {sidebarOpen ? 'VIDEO TOOLS' : ''}
             </div>
             {aiTools.video.map(tool => (
-              <NavLinkWithFavicon key={tool.id} tool={tool} sidebarOpen={sidebarOpen} />
+              <NavLinkWithFavicon 
+                key={tool.id} 
+                tool={tool} 
+                sidebarOpen={sidebarOpen} 
+                onContextMenu={handleToolContextMenu}
+              />
             ))}
           </div>
           
@@ -1289,7 +1460,12 @@ const App = () => {
               {sidebarOpen ? 'AUDIO TOOLS' : ''}
             </div>
             {aiTools.audio.map(tool => (
-              <NavLinkWithFavicon key={tool.id} tool={tool} sidebarOpen={sidebarOpen} />
+              <NavLinkWithFavicon 
+                key={tool.id} 
+                tool={tool} 
+                sidebarOpen={sidebarOpen} 
+                onContextMenu={handleToolContextMenu}
+              />
             ))}
           </div>
           
@@ -1299,7 +1475,12 @@ const App = () => {
               {sidebarOpen ? 'OTHER TOOLS' : ''}
             </div>
             {aiTools.other.map(tool => (
-              <NavLinkWithFavicon key={tool.id} tool={tool} sidebarOpen={sidebarOpen} />
+              <NavLinkWithFavicon 
+                key={tool.id} 
+                tool={tool} 
+                sidebarOpen={sidebarOpen} 
+                onContextMenu={handleToolContextMenu}
+              />
             ))}
           </div>
           
@@ -1332,13 +1513,111 @@ const App = () => {
       
       {/* Main Content */}
       <div style={styles.mainContent} className="main-content">
-        <Routes>
-          <Route path="/" element={<Dashboard aiTools={aiTools} />} />
-          <Route path="/tools/:toolId" element={<WebViewPage aiTools={allTools} />} />
-          <Route path="/assistant" element={<AiAssistant />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
+        {splitScreenVisible ? (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'row',
+            height: '100%',
+            position: 'relative'
+          }}>
+            <div style={{ width: `${splitRatio * 100}%`, height: '100%' }}>
+              <Routes>
+                <Route path="/" element={<Dashboard aiTools={aiTools} />} />
+                <Route path="/tools/:toolId" element={<WebViewPage aiTools={allTools} />} />
+                <Route path="/assistant" element={<AiAssistant />} />
+                <Route path="/settings" element={<SettingsNew />} />
+              </Routes>
+            </div>
+            
+            <div 
+              ref={splitResizeRef}
+              style={{ 
+                width: '5px',
+                cursor: 'col-resize',
+                background: '#ddd',
+                height: '100%',
+                zIndex: 100
+              }}
+              onMouseDown={startResize}
+            ></div>
+
+            <div style={{ 
+              width: `${(1 - splitRatio) * 100}%`, 
+              height: '100%',
+              position: 'relative'
+            }}>
+              {splitScreenTool && (
+                <>
+                  <button 
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      zIndex: 1000,
+                      background: 'rgba(200, 200, 200, 0.8)',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: '30px',
+                      height: '30px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer'
+                    }}
+                    onClick={handleCloseSplitScreen}
+                  >
+                    ×
+                  </button>
+                  <WebViewPage aiTools={[splitScreenTool]} />
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Routes>
+            <Route path="/" element={<Dashboard aiTools={aiTools} />} />
+            <Route path="/tools/:toolId" element={<WebViewPage aiTools={allTools} />} />
+            <Route path="/assistant" element={<AiAssistant />} />
+            <Route path="/settings" element={<SettingsNew />} />
+          </Routes>
+        )}
       </div>
+      
+      {/* Context Menu */}
+      {contextMenu.visible && (
+        <div style={{
+          ...contextMenuStyles.container,
+          top: `${contextMenu.y}px`,
+          left: `${contextMenu.x}px`
+        }}>
+          <div 
+            style={{
+              ...contextMenuStyles.item,
+              ...(contextMenuItemHover ? contextMenuStyles.itemHover : {})
+            }}
+            onClick={() => handleOpenInSplitScreen(contextMenu.tool)}
+            onMouseEnter={() => setContextMenuItemHover(true)}
+            onMouseLeave={() => setContextMenuItemHover(false)}
+          >
+            Open in Split Screen
+          </div>
+        </div>
+      )}
+      
+      {/* Click catcher to close context menu */}
+      {contextMenu.visible && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 9998
+          }}
+          onClick={handleCloseContextMenu}
+        />
+      )}
       
       {/* Debug display */}
       {showDebug && (

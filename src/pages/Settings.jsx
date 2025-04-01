@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react';
 // import { ipcRenderer } from 'electron';
 import { toast } from 'react-hot-toast';
 
+// Near the top of the file, after the imports
+// Use the webpack-injected version if available, otherwise fallback to hardcoded
+const APP_VERSION = '1.0.0'; // This should be updated with each release
+
 const Settings = () => {
   const [newSite, setNewSite] = useState({ name: '', url: '', category: 'llm' });
   const [darkMode, setDarkMode] = useState(false);
@@ -11,7 +15,7 @@ const Settings = () => {
   const [toolType, setToolType] = useState('llm');
   
   // App version and updates state
-  const [currentVersion, setCurrentVersion] = useState('');
+  const [currentVersion, setCurrentVersion] = useState(APP_VERSION);
   const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, not-available, downloading, downloaded, error
   const [updateProgress, setUpdateProgress] = useState(0);
   const [updateError, setUpdateError] = useState('');
@@ -121,26 +125,53 @@ const Settings = () => {
 
   // Add this function near the top of the component before useEffect hooks
   const isElectron = () => {
-    // Check if window.electron exists and has isAvailable property
+    // Log detailed information about the environment for debugging
+    console.log('Checking for Electron availability:');
+    console.log('- window.electron exists:', Boolean(window.electron));
+    if (window.electron) {
+      console.log('- window.electron.isAvailable:', window.electron.isAvailable);
+      console.log('- window.electron methods:', Object.keys(window.electron));
+    }
+    console.log('- window.isElectronAvailable:', window.isElectronAvailable);
+    
+    // First check: window.electron with isAvailable property
     if (window.electron && window.electron.isAvailable === true) {
+      console.log('✅ Electron detected via window.electron.isAvailable');
       return true;
     }
     
-    // Check if window.isElectronAvailable was set in preload
+    // Second check: window.isElectronAvailable flag set in preload
     if (window.isElectronAvailable === true) {
+      console.log('✅ Electron detected via window.isElectronAvailable');
       return true;
     }
     
-    // Check for process
+    // Third check: process object with electron versions
     if (typeof process !== 'undefined' && process.versions && process.versions.electron) {
+      console.log('✅ Electron detected via process.versions.electron');
       return true;
     }
     
-    // Check for navigator.userAgent
+    // Fourth check: navigator.userAgent
     if (navigator.userAgent.indexOf('Electron') !== -1) {
+      console.log('✅ Electron detected via navigator.userAgent');
       return true;
     }
     
+    // Fifth check: test the ipcRenderer directly
+    if (window.electron && typeof window.electron.testIpc === 'function') {
+      try {
+        const testResult = window.electron.testIpc();
+        if (testResult && testResult.success) {
+          console.log('✅ Electron detected via successful IPC test');
+          return true;
+        }
+      } catch (err) {
+        console.error('IPC test failed:', err);
+      }
+    }
+    
+    console.log('❌ Electron not detected');
     return false;
   };
 
@@ -1119,120 +1150,144 @@ const Settings = () => {
 
   // Get current app version on component mount
   useEffect(() => {
-    const getAppVersion = async () => {
-      if (isElectron() && window.electron?.getAppVersion) {
-        try {
-          const result = await window.electron.getAppVersion();
-          if (result && result.version) {
-            setCurrentVersion(result.version);
-          }
-        } catch (error) {
-          console.error('Error getting app version:', error);
-        }
-      }
-    };
-
     getAppVersion();
   }, []);
 
-  // Setup update event listeners
+  // Setup update notification system
   useEffect(() => {
-    if (!isElectron() || !window.electron) return;
-    
-    const removeUpdateAvailableListener = window.electron.onUpdateAvailable?.((info) => {
-      setUpdateStatus('available');
-      setUpdateInfo(info);
-      showMessage('A new update is available!');
-    });
-    
-    const removeUpdateNotAvailableListener = window.electron.onUpdateNotAvailable?.((info) => {
-      setUpdateStatus('not-available');
-      showMessage('Your app is up to date');
-    });
-    
-    const removeUpdateErrorListener = window.electron.onUpdateError?.((info) => {
-      setUpdateStatus('error');
-      setUpdateError(info.error || 'Unknown error');
-      showMessage('Error checking for updates');
-    });
-    
-    const removeDownloadProgressListener = window.electron.onDownloadProgress?.((progressObj) => {
-      setUpdateStatus('downloading');
-      setUpdateProgress(progressObj.percent || 0);
-    });
-    
-    const removeUpdateDownloadedListener = window.electron.onUpdateDownloaded?.((info) => {
-      setUpdateStatus('downloaded');
-      setUpdateInfo(info);
-      showMessage('Update downloaded! Restart the app to install.');
-    });
-    
-    return () => {
-      removeUpdateAvailableListener?.();
-      removeUpdateNotAvailableListener?.();
-      removeUpdateErrorListener?.();
-      removeDownloadProgressListener?.();
-      removeUpdateDownloadedListener?.();
-    };
+    if (window.electron?.ipcRenderer) {
+      // Listen for update events from main process
+      window.electron.ipcRenderer.on('update-available', (info) => {
+        setUpdateStatus('available');
+        setUpdateInfo(info);
+        showMessage('Update available!');
+      });
+      
+      window.electron.ipcRenderer.on('update-not-available', () => {
+        setUpdateStatus('not-available');
+        showMessage('App is up to date');
+      });
+      
+      window.electron.ipcRenderer.on('update-downloaded', () => {
+        setUpdateStatus('downloaded');
+        showMessage('Update downloaded and ready to install');
+      });
+      
+      window.electron.ipcRenderer.on('download-progress', (progressObj) => {
+        setUpdateStatus('downloading');
+        setUpdateProgress(progressObj.percent || 0);
+      });
+      
+      window.electron.ipcRenderer.on('update-error', (error) => {
+        setUpdateStatus('error');
+        setUpdateError(error.message || 'Unknown error');
+        showMessage('Error checking for updates');
+      });
+      
+      // Clean up listeners
+      return () => {
+        window.electron.ipcRenderer.removeAllListeners('update-available');
+        window.electron.ipcRenderer.removeAllListeners('update-not-available');
+        window.electron.ipcRenderer.removeAllListeners('update-downloaded');
+        window.electron.ipcRenderer.removeAllListeners('download-progress');
+        window.electron.ipcRenderer.removeAllListeners('update-error');
+      };
+    }
   }, []);
 
-  const handleCheckForUpdates = async () => {
-    if (!isElectron() || !window.electron?.checkForUpdates) {
-      showMessage('Update checking is only available in the desktop app');
-      return;
+  // Get app version using IPC
+  const getAppVersion = () => {
+    if (window.electron?.ipcRenderer) {
+      window.electron.ipcRenderer.invoke('get-app-version')
+        .then(result => {
+          setCurrentVersion(result.version);
+        })
+        .catch(err => {
+          console.error('Error getting app version:', err);
+        });
+    } else {
+      // Fallback for non-electron environments
+      setCurrentVersion(APP_VERSION);
     }
-    
+  };
+
+  // Handle checking for updates
+  const handleCheckForUpdates = () => {
     setUpdateStatus('checking');
     setUpdateError('');
+    showMessage('Checking for updates...');
     
+    if (window.electron?.ipcRenderer) {
+      // Use IPC to check for updates
+      window.electron.ipcRenderer.invoke('check-for-updates')
+        .catch(error => {
+          console.error('Update check error:', error);
+          setUpdateStatus('error');
+          setUpdateError(error.message);
+          showMessage('Error checking for updates');
+        });
+    } else {
+      // Fallback for web environments
+      directCheckForUpdates();
+    }
+  };
+
+  // Fallback direct update check (for web-only)
+  const directCheckForUpdates = async () => {
     try {
-      await window.electron.checkForUpdates();
+      setUpdateStatus('checking');
+      setUpdateError('');
+      showMessage('Checking for updates...');
+      
+      // Direct GitHub API call - no electron dependency whatsoever
+      const response = await fetch('https://api.github.com/repos/jpaquino3/AI_Toolbox/releases/latest');
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.tag_name) {
+        const latestVersion = data.tag_name.replace(/^v/i, '');
+        showMessage(`Latest version: ${latestVersion}`);
+        
+        if (latestVersion !== APP_VERSION) {
+          setUpdateStatus('available');
+          setUpdateInfo({
+            version: latestVersion,
+            downloadUrl: data.html_url
+          });
+          showMessage('Update available!');
+        } else {
+          setUpdateStatus('not-available');
+          showMessage('App is up to date');
+        }
+      }
     } catch (error) {
+      console.error('Update check error:', error);
       setUpdateStatus('error');
-      setUpdateError(error.message || 'Unknown error');
+      setUpdateError(error.message);
       showMessage('Error checking for updates');
     }
   };
-  
-  const handleDownloadUpdate = async () => {
-    if (!isElectron() || !window.electron?.downloadUpdate) {
-      return;
-    }
-    
-    setUpdateStatus('downloading');
-    setUpdateProgress(0);
-    
-    try {
-      await window.electron.downloadUpdate();
-    } catch (error) {
-      setUpdateStatus('error');
-      setUpdateError(error.message || 'Unknown error');
-      showMessage('Error downloading update');
-    }
-  };
-  
-  const handleRestartForUpdate = async () => {
-    console.log('handleRestartForUpdate called');
-    if (!isElectron() || !window.electron?.quitAndInstall) {
-      console.log('Electron or quitAndInstall not available', { 
-        isElectron: isElectron(),
-        hasQuitAndInstall: Boolean(window.electron?.quitAndInstall)
-      });
-      showMessage('Update installation is only available in the desktop app');
-      return;
-    }
-    
-    try {
-      console.log('Calling window.electron.quitAndInstall()');
-      const result = await window.electron.quitAndInstall();
-      console.log('quitAndInstall result:', result);
-    } catch (error) {
-      console.error('Error installing update:', error);
-      setUpdateError(error.message || 'Unknown error');
-      showMessage('Error installing update');
+
+  // Handle update download
+  const handleDownloadUpdate = () => {
+    if (window.electron?.ipcRenderer) {
+      setUpdateStatus('downloading');
+      window.electron.ipcRenderer.invoke('download-update')
+        .catch(error => {
+          console.error('Download error:', error);
+          setUpdateStatus('error');
+          setUpdateError(error.message);
+        });
+    } else if (updateInfo?.downloadUrl) {
+      window.open(updateInfo.downloadUrl, '_blank');
+      showMessage('Download page opened');
     }
   };
-  
+
   const renderUpdateStatus = () => {
     switch (updateStatus) {
       case 'idle':
@@ -1253,12 +1308,10 @@ const Settings = () => {
             </button>
           </div>
         );
-      case 'not-available':
-        return <p className="text-green-500">Your app is up to date</p>;
       case 'downloading':
         return (
           <div>
-            <p className="text-blue-500 mb-2">Downloading update: {Math.round(updateProgress)}%</p>
+            <p className="text-blue-500 mb-2">Downloading update: {updateProgress.toFixed(0)}%</p>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
                 className="bg-blue-600 h-2.5 rounded-full" 
@@ -1270,21 +1323,33 @@ const Settings = () => {
       case 'downloaded':
         return (
           <div>
-            <p className="text-green-500 mb-2">
-              Update downloaded! Restart the app to install.
-            </p>
+            <p className="text-green-500 mb-2">Update downloaded and ready to install</p>
             <button
-              onClick={handleRestartForUpdate}
+              onClick={handleInstallUpdate}
               className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
             >
-              Restart Now
+              Restart and Install
             </button>
           </div>
         );
+      case 'not-available':
+        return <p className="text-green-500">Your app is up to date</p>;
       case 'error':
         return <p className="text-red-500">Error: {updateError}</p>;
       default:
         return null;
+    }
+  };
+
+  // Handle installing the update after download
+  const handleInstallUpdate = () => {
+    if (window.electron?.ipcRenderer) {
+      try {
+        window.electron.ipcRenderer.invoke('quit-and-install');
+      } catch (error) {
+        console.error('Error installing update:', error);
+        showMessage('Error installing update: ' + error.message);
+      }
     }
   };
 

@@ -1,9 +1,29 @@
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, session, webContents } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, session, webContents, shell } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV === 'development';
 const url = require('url');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
+
+// Configure autoUpdater
+autoUpdater.logger = {
+  info: (...args) => console.log('Updater:', ...args),
+  warn: (...args) => console.warn('Updater:', ...args),
+  error: (...args) => console.error('Updater:', ...args),
+  debug: (...args) => console.debug('Updater:', ...args),
+  silly: (...args) => console.log('Updater (silly):', ...args),
+  transports: { file: { level: 'info' } }
+};
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
+
+// Configure GitHub repository for updates
+autoUpdater.setFeedURL({
+  provider: 'github',
+  owner: 'jpaquino3',
+  repo: 'AI_Toolbox',
+  releaseType: 'release'
+});
 
 // Fix sqlite3 path issues in production builds
 if (!isDev) {
@@ -30,6 +50,10 @@ if (!isDev) {
   }
 }
 
+// Set app version as a global variable for the preload script
+global.APP_VERSION = app.getVersion();
+console.log(`App version: ${global.APP_VERSION}`);
+
 // Keep a global reference of the window object
 let mainWindow;
 // Track registered shortcuts
@@ -37,12 +61,8 @@ let registeredShortcuts = [];
 // Track app-level keybindings (these will override browser shortcuts)
 let appKeybindings = {};
 
-// Configure autoUpdater with GitHub repository
-autoUpdater.setFeedURL({
-  provider: 'github',
-  owner: 'jpaquino3',
-  repo: 'AI_Toolbox'
-});
+// Add additional logging
+console.log('Using mock autoUpdater - updates are handled via direct GitHub API');
 
 // Check if we should simulate updates (for testing)
 const shouldSimulateUpdate = process.env.SIMULATE_UPDATE === 'true';
@@ -125,6 +145,9 @@ function createWindow() {
       enableBlinkFeatures: 'MediaDevices',
       // For MacOS Continuity Camera support
       additionalArguments: ['--enable-features=UseOzonePlatform'],
+      // Enable webview file drops
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
     titleBarStyle: 'hiddenInset', // For a cleaner look on macOS
     backgroundColor: '#f5f5f7', // Light background color
@@ -222,6 +245,38 @@ function createWindow() {
     }
   });
 
+  // Listen for webContents being created (for webviews)
+  app.on('web-contents-created', (e, contents) => {
+    // Enable file drops for webviews
+    if (contents.getType() === 'webview') {
+      console.log('Configuring webview for file drops');
+      
+      // Prevent navigation changes which might be triggered by dropping files
+      contents.on('will-navigate', (e) => {
+        console.log('Preventing webview navigation during drag/drop');
+        e.preventDefault();
+      });
+      
+      // Allow dropping files
+      contents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+        if (permission === 'media' || permission === 'openExternal') {
+          callback(true);
+        } else {
+          callback(false);
+        }
+      });
+      
+      // Enable drop events
+      contents.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown' && input.key === 'Escape') {
+          console.log('Escape pressed in webview, allowing default behavior');
+          // Don't prevent the default behavior for Escape key in webviews
+          event.preventDefault();
+        }
+      });
+    }
+  });
+
   // Emitted when the window is closed
   mainWindow.on('closed', () => {
     // Dereference the window object
@@ -251,19 +306,27 @@ function createKeyComboString(input) {
   return parts.join('+');
 }
 
-// Create window when app is ready
+// Main app initialization
 app.whenReady().then(() => {
-  console.log('App is ready');
+  console.log('App is ready, creating window...');
   createWindow();
-  
-  // Setup IPC handlers
   setupIPC();
   
-  // Check for updates if not in development mode
-  if (!isDev) {
+  // Initialize auto-updater
+  try {
+    console.log('Initializing auto-updater...');
+    
+    // Check for updates after a short delay to ensure app is fully loaded
     setTimeout(() => {
-      autoUpdater.checkForUpdates();
-    }, 3000);
+      if (!isDev) {
+        console.log('Performing initial update check...');
+        autoUpdater.checkForUpdates().catch(err => {
+          console.error('Error during initial update check:', err);
+        });
+      }
+    }, 10000); // Check after 10 seconds
+  } catch (err) {
+    console.error('Error setting up auto-updater:', err);
   }
 });
 
@@ -836,10 +899,11 @@ function setupIPC() {
     }
     
     try {
-      await autoUpdater.checkForUpdates();
-      return { checking: true };
+      autoUpdater.logger.info('Checking for updates...');
+      const result = await autoUpdater.checkForUpdates();
+      return { checking: true, result };
     } catch (error) {
-      console.error('Error checking for updates:', error);
+      autoUpdater.logger.error('Error checking for updates:', error);
       return { error: error.message };
     }
   });
@@ -851,24 +915,27 @@ function setupIPC() {
     }
     
     try {
-      autoUpdater.downloadUpdate();
+      autoUpdater.logger.info('Downloading update...');
+      await autoUpdater.downloadUpdate();
       return { downloading: true };
     } catch (error) {
-      console.error('Error downloading update:', error);
+      autoUpdater.logger.error('Error downloading update:', error);
       return { success: false, error: error.message };
     }
   });
   
   // Handle quit and install
   ipcMain.handle('quit-and-install', () => {
-    console.log('Quitting and installing update...');
+    autoUpdater.logger.info('Quitting and installing update...');
     autoUpdater.quitAndInstall(false, true);
     return { success: true };
   });
 
-  // Get current app version
+  // Handle getting app version
   ipcMain.handle('get-app-version', () => {
-    return { version: app.getVersion() };
+    const version = app.getVersion();
+    autoUpdater.logger.info(`Current app version: ${version}`);
+    return { version };
   });
   
   // DEBUG: Add mock update handlers (only in development)
@@ -887,6 +954,189 @@ function setupIPC() {
       global.mockUpdateProgress(percent);
       return { success: true };
     });
+  }
+
+  // Handle revealing files in Finder
+  ipcMain.handle('reveal-file-in-finder', async (event, filePath) => {
+    try {
+      console.log(`Received request to reveal file: ${filePath}`);
+      
+      // List of possible paths to check (in order of likelihood)
+      const pathsToTry = [
+        // Direct paths
+        filePath,
+        
+        // AIToolbox folder directly in home
+        path.join(app.getPath('home'), 'AIToolbox', filePath),
+        
+        // Current app path + filename
+        path.join(app.getAppPath(), filePath),
+        
+        // Home + filename
+        path.join(app.getPath('home'), filePath),
+        
+        // Documents folder
+        path.join(app.getPath('home'), 'Documents', 'AIToolbox', filePath)
+      ];
+      
+      // Try each path until one works
+      for (const pathToTry of pathsToTry) {
+        console.log(`Trying to reveal: ${pathToTry}`);
+        
+        try {
+          await shell.showItemInFolder(pathToTry);
+          console.log(`Successfully revealed: ${pathToTry}`);
+          return { success: true };
+        } catch (err) {
+          console.log(`Failed with path: ${pathToTry}`);
+          // Continue to next path
+        }
+      }
+      
+      // If we get here, none of the paths worked
+      console.error('Could not find file in any expected location');
+      return { success: false, error: 'File not found in expected locations' };
+    } catch (error) {
+      console.error(`Error revealing file in Finder: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  // Handle folder selection
+  ipcMain.handle('select-folder', async (event) => {
+    try {
+      console.log('Opening folder selection dialog');
+      const result = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        title: 'Select Media Folder'
+      });
+      
+      if (result.canceled) {
+        console.log('Folder selection cancelled');
+        return { success: false, canceled: true };
+      }
+      
+      const folderPath = result.filePaths[0];
+      console.log(`Selected folder: ${folderPath}`);
+      return { success: true, folderPath };
+    } catch (error) {
+      console.error(`Error selecting folder: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  // Handle getting images from a folder
+  ipcMain.handle('get-images-from-folder', async (event, folderPath) => {
+    try {
+      console.log(`Getting images from folder: ${folderPath}`);
+      
+      // Check if folder exists
+      if (!fs.existsSync(folderPath)) {
+        console.error(`Folder does not exist: ${folderPath}`);
+        return { success: false, error: 'Folder does not exist' };
+      }
+      
+      // Get list of files in folder
+      const files = fs.readdirSync(folderPath);
+      console.log(`Found ${files.length} files in folder`);
+      
+      // Filter for image files and create file objects
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'];
+      const imageFiles = files
+        .filter(file => {
+          const ext = path.extname(file).toLowerCase();
+          return imageExtensions.includes(ext);
+        })
+        .map(file => {
+          const filePath = path.join(folderPath, file);
+          const stats = fs.statSync(filePath);
+          
+          // Generate a proper file URL that works in webviews
+          const fileUrl = pathToFileURL(filePath);
+          
+          return {
+            name: file,
+            path: filePath,
+            url: fileUrl,
+            size: stats.size,
+            lastModified: stats.mtime
+          };
+        });
+      
+      console.log(`Found ${imageFiles.length} image files`);
+      return { success: true, files: imageFiles };
+    } catch (error) {
+      console.error(`Error getting images from folder: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+}
+
+// Helper function to convert a file path to a proper file:// URL
+function pathToFileURL(filePath) {
+  if (!filePath) return '';
+  
+  try {
+    // Ensure the path is absolute
+    const absolutePath = path.resolve(filePath);
+    
+    // First clean any existing file:// prefixes to prevent duplication
+    let cleanPath = absolutePath;
+    if (cleanPath.startsWith('file://')) {
+      cleanPath = cleanPath.substring(7);
+      // Remove any leading slashes after removing prefix
+      while (cleanPath.startsWith('/')) {
+        cleanPath = cleanPath.substring(1);
+      }
+    }
+    
+    // Add the file:// prefix properly
+    let fileURL = 'file://';
+    
+    // On macOS, paths starting with / need three slashes total (file:///)
+    // On Windows, paths need a leading slash after file://
+    if (process.platform === 'darwin' && cleanPath.startsWith('/')) {
+      fileURL += '/';
+    } else if (process.platform === 'win32') {
+      fileURL += '/';
+    }
+    
+    // Replace backslashes with forward slashes and encode special characters
+    const normalizedPath = cleanPath.replace(/\\/g, '/');
+    
+    // Split the path into segments and encode each segment
+    const segments = normalizedPath.split('/');
+    const encodedSegments = segments.map(segment => 
+      // Don't encode : and / characters
+      encodeURIComponent(segment).replace(/%3A/g, ':')
+    );
+    
+    // Join the segments, ensuring empty segments remain (important for paths with multiple slashes)
+    let encodedPath = '';
+    for (let i = 0; i < segments.length; i++) {
+      // If this is an empty segment (due to leading/consecutive slashes), preserve it
+      if (segments[i] === '') {
+        encodedPath += '/';
+      } 
+      // Otherwise add the encoded segment with a separator
+      else {
+        if (i > 0) encodedPath += '/';
+        encodedPath += encodedSegments[i];
+      }
+    }
+    
+    fileURL += encodedPath;
+    
+    // Final sanity check to ensure we don't have duplicate slashes
+    // Replace any sequence of more than 3 slashes after file: with exactly 3
+    fileURL = fileURL.replace(/file:\/+/, 'file:///');
+    
+    console.log(`Converted path "${filePath}" to URL "${fileURL}"`);
+    return fileURL;
+  } catch (err) {
+    console.error(`Error in pathToFileURL:`, err);
+    // Return a basic fallback
+    return `file:///${filePath.replace(/\\/g, '/')}`;
   }
 }
 

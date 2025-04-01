@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Button, Alert } from 'react-bootstrap';
 import './MediaLibrary.css';
 
@@ -241,6 +241,10 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
   const [isElectron, setIsElectron] = useState(false);
   const [folderHandle, setFolderHandle] = useState(null);
   const [currentFolder, setCurrentFolder] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const contextMenuRef = useRef(null);
+  const [imagePopup, setImagePopup] = useState(null);
+  const [draggingFile, setDraggingFile] = useState(null);
 
   // Clean up only DOM-related artifacts on unmount 
   useEffect(() => {
@@ -257,6 +261,25 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
   const isFileSystemAccessSupported = () => {
     return 'showDirectoryPicker' in window;
   };
+
+  // Check if Electron is available
+  useEffect(() => {
+    setIsElectron(!!window.electron?.isAvailable);
+  }, []);
+
+  // Close the context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target)) {
+        setContextMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Load files from previously selected folder
   useEffect(() => {
@@ -345,38 +368,86 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
   }, [files, folderHandle]);
 
   const loadFilesFromHandle = async (handle) => {
-    if (!handle) return;
-    
     try {
-      setError(null);
-      const fileHandles = [];
+      if (!handle) {
+        console.error('No folder handle provided');
+        return;
+      }
       
-      // Get all file entries in the directory
-      for await (const entry of handle.values()) {
-        if (entry.kind === 'file' && entry.name.match(/\.(jpe?g|png|gif|bmp|webp)$/i)) {
-          fileHandles.push(entry);
+      // Store the full folder path - IMPORTANT: needed for "Reveal in Finder"
+      // This will get the actual filesystem path from the handle
+      let absoluteFolderPath = '';
+      try {
+        if (handle.getDirectoryHandle) {
+          // Web File System API doesn't provide direct access to file paths
+          // So we'll use the handle.name as the relative path
+          absoluteFolderPath = handle.name;
+        }
+      } catch (err) {
+        console.error('Error getting folder path:', err);
+      }
+      
+      setCurrentFolder(handle.name);
+      console.log('Selected folder path:', absoluteFolderPath);
+      
+      const filePromises = [];
+      
+      // Function to recursively process directories (up to a reasonable depth)
+      async function processDirectoryEntries(dirHandle, path = '', depth = 0) {
+        // Limit depth to avoid infinite recursion
+        if (depth > 3) return;
+        
+        try {
+          // Get all entries in the directory
+          for await (const entry of dirHandle.values()) {
+            try {
+              if (entry.kind === 'file') {
+                // Get file handle
+                const fileHandle = entry;
+                const file = await fileHandle.getFile();
+                
+                // Only process image files
+                if (file.type.startsWith('image/')) {
+                  const filePath = path ? `${path}/${file.name}` : file.name;
+                  
+                  // Create a URL for the file
+                  const url = URL.createObjectURL(file);
+                  
+                  // For Electron, we need to store the full directory path
+                  // This is critical for "Reveal in Finder" to work
+                  const fullFilePath = absoluteFolderPath ? `${absoluteFolderPath}/${filePath}` : filePath;
+                  
+                  filePromises.push({
+                    id: `${Date.now()}-${Math.random()}`,
+                    name: file.name,
+                    url,
+                    file,
+                    path: fullFilePath
+                  });
+                }
+              } else if (entry.kind === 'directory') {
+                // Process subdirectory
+                await processDirectoryEntries(
+                  entry, 
+                  path ? `${path}/${entry.name}` : entry.name,
+                  depth + 1
+                );
+              }
+            } catch (entryError) {
+              console.error(`Error processing entry ${entry.name}:`, entryError);
+            }
+          }
+        } catch (dirError) {
+          console.error('Error reading directory entries:', dirError);
         }
       }
       
-      // Process file handles and create file objects
-      const filePromises = fileHandles.map(async fileHandle => {
-        const file = await fileHandle.getFile();
-        const url = URL.createObjectURL(file);
-        
-        return {
-          id: `${handle.name}-${fileHandle.name}`,
-          name: fileHandle.name,
-          url: url,
-          fileHandle: fileHandle,
-          file: file,
-          type: file.type
-        };
-      });
+      // Start processing from the root directory
+      await processDirectoryEntries(handle);
       
       const loadedFiles = await Promise.all(filePromises);
       setFiles(loadedFiles);
       setFolderHandle(handle);
-      setCurrentFolder(handle.name);
       
       // Try to persist permission
       try {
@@ -400,11 +471,30 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
 
   const handleChooseFolder = async () => {
     try {
+      if (isElectron) {
+        // Use Electron's dialog for folder selection to get the real filesystem path
+        try {
+          console.log('Using Electron dialog to select folder');
+          const result = await window.electron.selectFolder();
+          
+          if (result && result.success && result.folderPath) {
+            console.log('Selected folder path from Electron:', result.folderPath);
+            // Now load files from this folder
+            await loadFilesFromElectronPath(result.folderPath);
+            return;
+          }
+        } catch (electronErr) {
+          console.error('Error using Electron dialog:', electronErr);
+        }
+      }
+      
+      // Fall back to browser API if Electron selection fails or isn't available
       if (!isFileSystemAccessSupported()) {
         setError('Your browser does not support the File System Access API. Please use Chrome, Edge, or another browser with this feature enabled.');
         return;
       }
       
+      console.log('Using browser File System API to select folder');
       const handle = await window.showDirectoryPicker();
       await loadFilesFromHandle(handle);
     } catch (err) {
@@ -413,6 +503,38 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
         console.error('Error selecting folder:', err);
         setError(`Error selecting folder: ${err.message}`);
       }
+    }
+  };
+
+  const loadFilesFromElectronPath = async (folderPath) => {
+    try {
+      console.log('Loading files from Electron path:', folderPath);
+      setCurrentFolder(folderPath);
+      
+      // Request file list from Electron main process
+      const result = await window.electron.getImagesFromFolder(folderPath);
+      
+      if (result && result.success && result.files) {
+        console.log(`Found ${result.files.length} images in folder`);
+        
+        // Convert the file info into our format
+        const loadedFiles = result.files.map(fileInfo => ({
+          id: `${Date.now()}-${Math.random()}`,
+          name: fileInfo.name,
+          url: fileInfo.url || `file://${fileInfo.path}`,
+          path: fileInfo.path, // This is the full absolute path
+          size: fileInfo.size
+        }));
+        
+        setFiles(loadedFiles);
+        setError(null);
+      } else {
+        console.error('Failed to load files:', result?.error || 'Unknown error');
+        setError(`Failed to load files: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Error loading files from Electron path:', err);
+      setError(`Error loading files: ${err.message}`);
     }
   };
 
@@ -426,20 +548,34 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
       if (e.target.files && e.target.files.length > 0) {
         const filePromises = Array.from(e.target.files).map(file => 
           new Promise((resolve) => {
-            const id = `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            resolve({
-              id: id,
-              name: file.name,
-              url: URL.createObjectURL(file), // Use blob URL for display
-              file: file, // keep the original file for drag operations
-              type: file.type
-            });
+            const reader = new FileReader();
+            reader.onload = () => {
+              // Create a URL for the file
+              const url = URL.createObjectURL(file);
+              
+              // Use the native file path if available from Electron
+              // Otherwise use the filename - the main process will resolve the path
+              let filePath = null;
+              if (file.path) {
+                filePath = file.path;
+              } else {
+                filePath = file.name;
+              }
+              
+              resolve({
+                id: `${Date.now()}-${Math.random()}`,
+                name: file.name,
+                url: url,
+                file: file,
+                path: filePath
+              });
+            };
+            reader.readAsDataURL(file);
           })
         );
         
         Promise.all(filePromises).then(newFiles => {
-          setFiles(prev => [...prev, ...newFiles]);
-          setError(null);
+          setFiles(prevFiles => [...prevFiles, ...newFiles]);
         });
       }
     };
@@ -453,38 +589,131 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
   };
 
   const handleDragStart = (e, file) => {
+    setDraggingFile(file.id);
+    
     try {
+      console.log('Starting drag for file with path:', file.path);
+      
       // Set drag effect
       e.dataTransfer.effectAllowed = 'copy';
       
-      // Set data for the drag operation
+      // Clear any previous data
       e.dataTransfer.clearData();
       
-      if (file.file) {
-        // If we have a File object, use it
-        e.dataTransfer.setData('text/plain', file.name);
-        e.dataTransfer.items.add(file.file);
-      } else if (file.url) {
-        // Otherwise just use the URL
-        e.dataTransfer.setData('text/plain', file.url);
-        e.dataTransfer.setData('text/uri-list', file.url);
+      // CRITICAL: Set the file path as the primary data
+      if (file.path) {
+        // Ensure we have a proper file:// URL format
+        let fileURL = null;
+        
+        // Make sure we normalize the path and don't double-prefix
+        if (file.path) {
+          // Clean path - remove any existing file:// prefix to avoid duplication
+          let cleanPath = file.path;
+          if (cleanPath.startsWith('file://')) {
+            cleanPath = cleanPath.substring(7);
+            // Remove any leading slashes after removing prefix
+            while (cleanPath.startsWith('/')) {
+              cleanPath = cleanPath.substring(1);
+            }
+          }
+          
+          // On macOS, file:// URLs need three slashes total for absolute paths
+          if (cleanPath.startsWith('/')) {
+            fileURL = `file:///${cleanPath}`;
+          } else {
+            fileURL = `file://${cleanPath}`;
+          }
+          
+          // Make sure path is properly encoded
+          fileURL = fileURL.replace(/ /g, '%20');
+        }
+        
+        console.log('Using normalized file URL for drag & drop:', fileURL);
+        
+        // Set the URL in multiple formats for maximum compatibility
+        e.dataTransfer.setData('text/uri-list', fileURL);
+        e.dataTransfer.setData('text/plain', fileURL);
+        e.dataTransfer.setData('URL', fileURL);
+        
+        // Create a binary Blob representing the actual image data for direct file drops
+        if (file.url) {
+          try {
+            // Create an image element to load the image data
+            const img = new Image();
+            img.src = file.url;
+            
+            // Set a nice drag image
+            e.dataTransfer.setDragImage(img, 10, 10);
+            
+            // Add HTML for direct image insertion
+            const imgHtml = `<img src="${fileURL}" alt="${file.name}" style="max-width: 100%;">`;
+            e.dataTransfer.setData('text/html', imgHtml);
+          } catch (imgErr) {
+            console.error('Error creating image data:', imgErr);
+          }
+        }
+      } else {
+        // Fallback for files without paths
+        console.log('No path available, using file name for drag');
+        e.dataTransfer.setData('text/plain', file.name || 'image');
       }
-      
-      // Create a ghost image
-      const ghostImage = new Image();
-      ghostImage.src = file.url;
-      ghostImage.onload = () => {
-        e.dataTransfer.setDragImage(ghostImage, 10, 10);
-      };
     } catch (error) {
       console.error('Error in handleDragStart:', error);
-      // Fallback to basic text
-      e.dataTransfer.setData('text/plain', file.name || 'image');
+      // Fallback to basic text if everything else fails
+      e.dataTransfer.setData('text/plain', file.path || file.name || 'image');
     }
   };
 
+  const handleDragEnd = () => {
+    setDraggingFile(null);
+  };
+
   const handleImageClick = (file) => {
-    onSelect && onSelect(file);
+    // If there's an external handler, call it
+    if (onSelect) {
+      onSelect(file);
+    } else {
+      // Otherwise show our built-in image popup
+      setImagePopup(file);
+    }
+  };
+
+  const closeImagePopup = () => {
+    setImagePopup(null);
+  };
+
+  const handleContextMenu = (e, file) => {
+    e.preventDefault();
+    if (isElectron && file.path) {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        file
+      });
+    }
+  };
+
+  const handleRevealInFinder = async (file) => {
+    setContextMenu(null);
+    if (isElectron && file.path) {
+      try {
+        console.log('Revealing file at path:', file.path);
+        
+        // Request the absolute path from Electron's main process
+        const result = await window.electron.revealFileInFinder(file.path);
+        
+        if (!result.success) {
+          console.error('Failed to reveal file:', result.error);
+          setError(`Failed to reveal file: ${result.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error('Error revealing file:', error);
+        setError(`Failed to reveal file: ${error.message || 'Unknown error'}`);
+      }
+    } else {
+      console.error('Cannot reveal file: Electron not available or no path for file', file);
+      setError('Cannot reveal file in Finder: No file path available');
+    }
   };
 
   // NOTE: This function is now available in the Settings component
@@ -603,8 +832,11 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
                 key={file.id} 
                 className="image-container"
                 onClick={() => handleImageClick(file)}
+                onContextMenu={(e) => handleContextMenu(e, file)}
                 draggable
                 onDragStart={(e) => handleDragStart(e, file)}
+                onDragEnd={handleDragEnd}
+                dragging={draggingFile === file.id ? "true" : "false"}
               >
                 <img src={file.url} alt={file.name} />
                 <div className="image-name">{file.name}</div>
@@ -624,9 +856,39 @@ const MediaLibraryContent = ({ isOpen, onClose, onSelect, viewMode = 'panel' }) 
           </div>
         )}
         
+        {contextMenu && (
+          <div 
+            ref={contextMenuRef}
+            className="context-menu"
+            style={{ 
+              position: 'fixed', 
+              top: contextMenu.y, 
+              left: contextMenu.x,
+              zIndex: 1050
+            }}
+          >
+            <div className="context-menu-item" onClick={() => handleRevealInFinder(contextMenu.file)}>
+              <span role="img" aria-label="finder" style={{ marginRight: '8px' }}>🔍</span>
+              Reveal in Finder
+            </div>
+          </div>
+        )}
+
+        {imagePopup && (
+          <div className="image-popup" onClick={closeImagePopup}>
+            <div className="image-popup-content" onClick={(e) => e.stopPropagation()}>
+              <img src={imagePopup.url} alt={imagePopup.name} />
+              <div className="image-popup-name">{imagePopup.name}</div>
+              <button className="image-popup-close" onClick={closeImagePopup}>×</button>
+            </div>
+          </div>
+        )}
+        
         {files.length > 0 && (
           <div className="drag-hint">
-            Drag images from here to your AI tools
+            <span role="img" aria-label="drag" style={{ marginRight: '5px' }}>👉</span>
+            Drag images directly to webviews and tools
+            <span role="img" aria-label="drop" style={{ marginLeft: '5px' }}>🎯</span>
           </div>
         )}
         
