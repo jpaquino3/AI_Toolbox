@@ -12,7 +12,8 @@ An AI tools dashboard for managing and accessing various AI generation platforms
 
 ## Screenshots
 
-(Screenshots will be added once the app is built)
+![image](https://github.com/user-attachments/assets/2af2e67d-45ed-4505-bf0e-4535dde7d618)
+
 
 ## Installation
 
@@ -115,11 +116,8 @@ The build process includes verification steps to ensure these files are present.
 
 ```bash
 node scripts/verify-build.js
-```
+``'
 
-## License
-
-ISC
 
 ## Acknowledgements
 
