@@ -189,6 +189,7 @@ const WebViewPage = ({ aiTools }) => {
   const [hoverState, setHoverState] = useState({});
   const [favicon, setFavicon] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [energySaver, setEnergySaver] = useState(false);
   
   // Find tool based on toolId or direct aiTools prop
   useEffect(() => {
@@ -693,6 +694,216 @@ const WebViewPage = ({ aiTools }) => {
       document.removeEventListener('did-fail-load', handleError);
     };
   }, [currentTool]);
+  
+  // Add effect to load energy saver setting
+  useEffect(() => {
+    const savedEnergySaver = localStorage.getItem('energySaver');
+    // If no setting exists, default to false
+    setEnergySaver(savedEnergySaver === 'true');
+  }, []);
+
+  // Add effect to handle energy saver mode
+  useEffect(() => {
+    const webview = getCurrentWebviewRef();
+    if (!webview) return;
+
+    // Define CSS outside the injection function so it's accessible in cleanup
+    const energySaverCSS = `
+      video[autoplay] {
+        ${energySaver ? 'display: none !important;' : ''}
+      }
+      
+      .aifm-energy-saver-handled {
+        display: none !important;
+      }
+      
+      .aifm-play-button:hover {
+        background: rgba(0, 0, 0, 0.8) !important;
+      }
+    `;
+
+    // Function to inject energy saver scripts
+    const injectEnergySaverScripts = () => {
+      // Check if webview is ready
+      if (!webview.getWebContentsId) {
+        console.log('Webview not ready yet, waiting...');
+        return;
+      }
+
+      console.log('Webview ready, injecting energy saver scripts');
+      
+      // Inject CSS and JavaScript to handle energy saver mode
+      const energySaverScript = `
+        (function() {
+          // Function to handle video elements
+          function handleVideos() {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+              if (${energySaver}) {
+                // Remove autoplay attribute
+                video.removeAttribute('autoplay');
+                // Set preload to none to prevent loading
+                video.setAttribute('preload', 'none');
+                // Pause the video if it's playing
+                if (!video.paused) {
+                  video.pause();
+                }
+              } else {
+                // Restore default behavior
+                video.setAttribute('preload', 'auto');
+              }
+            });
+          }
+
+          // Function to handle animated images
+          function handleAnimatedImages() {
+            const images = document.querySelectorAll('img');
+            images.forEach(img => {
+              // Check if image is animated (GIF, WebP, or APNG)
+              const isAnimated = img.src.match(/\\.(gif|webp|png)$/i) && 
+                               !img.classList.contains('aifm-energy-saver-handled');
+              
+              if (isAnimated && ${energySaver}) {
+                // Add our class to mark as handled
+                img.classList.add('aifm-energy-saver-handled');
+                
+                // Store original src
+                if (!img.dataset.originalSrc) {
+                  img.dataset.originalSrc = img.src;
+                }
+                
+                // Create a canvas to show first frame
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                // Draw the first frame
+                ctx.drawImage(img, 0, 0);
+                
+                // Replace image with canvas
+                img.style.display = 'none';
+                img.parentNode.insertBefore(canvas, img);
+                
+                // Add play button overlay
+                const playButton = document.createElement('div');
+                playButton.className = 'aifm-play-button';
+                playButton.innerHTML = '▶️';
+                playButton.style.cssText = \`
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  transform: translate(-50%, -50%);
+                  background: rgba(0, 0, 0, 0.7);
+                  color: white;
+                  width: 40px;
+                  height: 40px;
+                  border-radius: 50%;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  cursor: pointer;
+                  font-size: 20px;
+                  z-index: 1000;
+                \`;
+                
+                // Add container for positioning
+                const container = document.createElement('div');
+                container.style.cssText = \`
+                  position: relative;
+                  display: inline-block;
+                \`;
+                
+                // Wrap canvas and play button
+                container.appendChild(canvas);
+                container.appendChild(playButton);
+                
+                // Replace original image with container
+                img.parentNode.replaceChild(container, img);
+                
+                // Add click handler to resume animation
+                playButton.addEventListener('click', () => {
+                  // Restore original image
+                  img.style.display = '';
+                  container.replaceChild(img, canvas);
+                  container.removeChild(playButton);
+                  img.classList.remove('aifm-energy-saver-handled');
+                });
+              } else if (!${energySaver} && img.classList.contains('aifm-energy-saver-handled')) {
+                // Restore original image when energy saver is disabled
+                const container = img.parentNode;
+                if (container.querySelector('.aifm-play-button')) {
+                  container.removeChild(container.querySelector('.aifm-play-button'));
+                }
+                img.classList.remove('aifm-energy-saver-handled');
+                img.style.display = '';
+              }
+            });
+          }
+
+          // Create a MutationObserver to watch for new elements
+          const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+              if (mutation.addedNodes.length) {
+                handleVideos();
+                handleAnimatedImages();
+              }
+            });
+          });
+
+          // Start observing the document with the configured parameters
+          observer.observe(document.body, { childList: true, subtree: true });
+
+          // Initial check for videos and animated images
+          handleVideos();
+          handleAnimatedImages();
+
+          // Clean up observer when the script is removed
+          return () => observer.disconnect();
+        })();
+      `;
+
+      try {
+        // Inject the script into the webview
+        webview.executeJavaScript(energySaverScript);
+
+        // Also inject CSS to prevent autoplay and style paused animations
+        webview.insertCSS(energySaverCSS);
+      } catch (error) {
+        console.error('Error injecting energy saver scripts:', error);
+      }
+    };
+
+    // Wait for dom-ready event before injecting scripts
+    const handleDomReady = () => {
+      console.log('Webview DOM ready, checking if webview is attached...');
+      // Add a small delay to ensure webview is fully attached
+      setTimeout(() => {
+        if (webview.getWebContentsId) {
+          console.log('Webview is attached and ready, injecting scripts');
+          injectEnergySaverScripts();
+        } else {
+          console.log('Webview not fully attached yet, waiting...');
+          // Try again after a short delay
+          setTimeout(injectEnergySaverScripts, 100);
+        }
+      }, 100);
+    };
+
+    // Add dom-ready event listener
+    webview.addEventListener('dom-ready', handleDomReady);
+
+    // Clean up function
+    return () => {
+      webview.removeEventListener('dom-ready', handleDomReady);
+      // Remove the CSS
+      try {
+        webview.removeInsertedCSS(energySaverCSS);
+      } catch (error) {
+        console.error('Error removing CSS:', error);
+      }
+    };
+  }, [energySaver, currentTool]);
   
   // This ensures all webviews are created only once
   const renderAllWebviews = () => {

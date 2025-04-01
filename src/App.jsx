@@ -638,7 +638,7 @@ const App = () => {
         { id: 'hailuo', name: 'Hailuo AI', url: 'https://hailuoai.video/' },
         { id: 'runway', name: 'RunwayML', url: 'https://runwayml.com/' },
         { id: 'pika', name: 'Pika Labs', url: 'https://pika.art/' },
-        { id: 'kling', name: 'Kling AI', url: 'https://kling.ai/' },
+        { id: 'kling', name: 'Kling AI', url: 'https://klingai.com/global' },
       ],
       audio: [
         { id: 'elevenlabs', name: 'ElevenLabs', url: 'https://elevenlabs.io/' },
@@ -1353,26 +1353,101 @@ const App = () => {
     setSplitScreenTool(null);
   };
 
+  // Add these refs for tracking drag state
+  const dragStartX = useRef(0);
+  const dragStartRatio = useRef(0);
+  const isDragging = useRef(false);
+
+  // Update the resize handle style
+  const resizeHandleStyle = {
+    position: 'absolute',
+    left: `${splitRatio * 100}%`,
+    top: 0,
+    transform: 'translateX(-50%)',
+    width: '20px',
+    height: '100%',
+    cursor: 'col-resize',
+    zIndex: 1000,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'stretch',
+    touchAction: 'none'
+  };
+
+  // Style for the visual handle line
+  const handleLineStyle = {
+    width: '4px',
+    height: '100%',
+    background: '#ddd',
+    transition: 'background-color 0.2s',
+    borderRadius: '2px'
+  };
+
   // Handle split-screen resize
   const handleSplitResize = (e) => {
+    if (!isDragging.current || !splitResizeRef.current) return;
+
+    const container = splitResizeRef.current.parentElement;
+    const containerRect = container.getBoundingClientRect();
+    
+    // Calculate the new ratio based on mouse position within the container
+    const newRatio = Math.max(0.2, Math.min(0.8, (e.clientX - containerRect.left) / containerRect.width));
+    setSplitRatio(newRatio);
+
+    // Update handle position immediately for smoother movement
     if (splitResizeRef.current) {
-      const container = splitResizeRef.current.parentElement;
-      const containerWidth = container.offsetWidth;
-      const mouseX = e.clientX;
-      const newRatio = Math.max(0.2, Math.min(0.8, mouseX / containerWidth));
-      setSplitRatio(newRatio);
+      splitResizeRef.current.style.left = `${newRatio * 100}%`;
     }
   };
 
   // Start resizing
   const startResize = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     
+    isDragging.current = true;
+    
+    // Add visual feedback
+    if (splitResizeRef.current) {
+      const handleLine = splitResizeRef.current.querySelector('div');
+      if (handleLine) {
+        handleLine.style.background = '#4f46e5';
+      }
+      
+      // Add active cursor and prevent text selection globally
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.body.style.pointerEvents = 'none';
+    }
+    
+    // Add event listeners
     const handleMouseMove = (moveEvent) => {
-      handleSplitResize(moveEvent);
+      if (!isDragging.current) return;
+      moveEvent.preventDefault();
+      moveEvent.stopPropagation();
+      
+      requestAnimationFrame(() => {
+        handleSplitResize(moveEvent);
+      });
     };
     
     const handleMouseUp = () => {
+      isDragging.current = false;
+      
+      // Remove visual feedback
+      if (splitResizeRef.current) {
+        const handleLine = splitResizeRef.current.querySelector('div');
+        if (handleLine) {
+          handleLine.style.background = '#ddd';
+        }
+        
+        // Restore normal cursor and interactions
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.body.style.pointerEvents = '';
+      }
+      
+      // Clean up event listeners
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -1518,9 +1593,15 @@ const App = () => {
             display: 'flex',
             flexDirection: 'row',
             height: '100%',
-            position: 'relative'
+            position: 'relative',
+            overflow: 'hidden'
           }}>
-            <div style={{ width: `${splitRatio * 100}%`, height: '100%' }}>
+            <div style={{ 
+              width: `${splitRatio * 100}%`, 
+              height: '100%',
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
               <Routes>
                 <Route path="/" element={<Dashboard aiTools={aiTools} />} />
                 <Route path="/tools/:toolId" element={<WebViewPage aiTools={allTools} />} />
@@ -1531,20 +1612,17 @@ const App = () => {
             
             <div 
               ref={splitResizeRef}
-              style={{ 
-                width: '5px',
-                cursor: 'col-resize',
-                background: '#ddd',
-                height: '100%',
-                zIndex: 100
-              }}
+              style={resizeHandleStyle}
               onMouseDown={startResize}
-            ></div>
+            >
+              <div style={handleLineStyle} />
+            </div>
 
             <div style={{ 
               width: `${(1 - splitRatio) * 100}%`, 
               height: '100%',
-              position: 'relative'
+              position: 'relative',
+              overflow: 'hidden'
             }}>
               {splitScreenTool && (
                 <>

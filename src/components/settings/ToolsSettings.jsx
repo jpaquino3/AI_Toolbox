@@ -28,7 +28,7 @@ const ToolsSettings = ({ showMessage }) => {
         { id: 'hailuo', name: 'Hailuo AI', url: 'https://hailuoai.video/' },
         { id: 'runway', name: 'RunwayML', url: 'https://runwayml.com/' },
         { id: 'pika', name: 'Pika Labs', url: 'https://pika.art/' },
-        { id: 'kling', name: 'Kling AI', url: 'https://kling.ai/' },
+        { id: 'kling', name: 'Kling AI', url: 'https://klingai.com/global' },
       ],
       audio: [
         { id: 'elevenlabs', name: 'ElevenLabs', url: 'https://elevenlabs.io/' },

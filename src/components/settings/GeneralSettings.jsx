@@ -14,6 +14,7 @@ const getInitialVersion = () => {
 
 const GeneralSettings = ({ showMessage, isElectron }) => {
   const [darkMode, setDarkMode] = useState(false);
+  const [energySaver, setEnergySaver] = useState(false);
   const [currentVersion, setCurrentVersion] = useState(getInitialVersion);
   const [updateStatus, setUpdateStatus] = useState('idle');
   const [updateProgress, setUpdateProgress] = useState(0);
@@ -25,6 +26,10 @@ const GeneralSettings = ({ showMessage, isElectron }) => {
     // Load dark mode setting
     const savedDarkMode = localStorage.getItem('darkMode') === 'true';
     setDarkMode(savedDarkMode);
+    
+    // Load energy saver setting
+    const savedEnergySaver = localStorage.getItem('energySaver') === 'true';
+    setEnergySaver(savedEnergySaver);
     
     // Get app version (electron only)
     if (isElectron) {
@@ -164,11 +169,17 @@ const GeneralSettings = ({ showMessage, isElectron }) => {
   }, [isElectron]);
 
   const toggleDarkMode = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    localStorage.setItem('darkMode', newMode.toString());
-    document.body.classList.toggle('dark-mode', newMode);
-    showMessage(`${newMode ? 'Dark' : 'Light'} mode enabled`);
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
+    localStorage.setItem('darkMode', newDarkMode);
+    showMessage('Theme updated successfully');
+  };
+
+  const toggleEnergySaver = () => {
+    const newEnergySaver = !energySaver;
+    setEnergySaver(newEnergySaver);
+    localStorage.setItem('energySaver', newEnergySaver);
+    showMessage('Energy saver mode updated successfully');
   };
 
   const getAppVersion = async () => {
@@ -486,7 +497,7 @@ const GeneralSettings = ({ showMessage, isElectron }) => {
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-semibold mb-4">Appearance</h2>
-        <div className="flex items-center">
+        <div className="flex items-center mb-4">
           <span className="mr-3">Theme:</span>
           <label className="relative inline-flex items-center cursor-pointer">
             <input
@@ -498,6 +509,22 @@ const GeneralSettings = ({ showMessage, isElectron }) => {
             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
             <span className="ml-3">{darkMode ? 'Dark Mode' : 'Light Mode'}</span>
           </label>
+        </div>
+        <div className="flex items-center">
+          <span className="mr-3">Energy Saver:</span>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={energySaver}
+              onChange={toggleEnergySaver}
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            <span className="ml-3">{energySaver ? 'On' : 'Off'}</span>
+          </label>
+          <p className="ml-3 text-sm text-gray-500">
+            When enabled, videos in webviews will not autoplay but can be played manually
+          </p>
         </div>
       </div>
       
