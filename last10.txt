@@ -1,0 +1,10 @@
+        autoUpdater.logger.error('Error during quitAndInstall:', err);
+        return { success: false, error: `Update installation failed: ${err.message}. Please try downloading the update manually from GitHub.` };
+      }
+    }
+  } catch (err) {
+    autoUpdater.logger.error('Unexpected error during update installation:', err);
+    return { success: false, error: `Unexpected error: ${err.message}. Please try downloading the update manually from GitHub.` };
+  }
+});
+}

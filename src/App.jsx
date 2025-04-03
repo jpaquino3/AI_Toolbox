@@ -1458,6 +1458,7 @@ const App = () => {
 
   return (
     <div style={styles.container} className="app-container">
+      <div className="titlebar" />
       {/* Sidebar */}
       <div style={sidebarStyle} className="sidebar">
         <div style={styles.sidebarHeader} className="sidebar-header">

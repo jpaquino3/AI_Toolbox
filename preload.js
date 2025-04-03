@@ -20,7 +20,43 @@ window.electronPing = () => {
   return 'pong';
 };
 
-const { contextBridge, ipcRenderer } = require('electron');
+// Required Electron modules
+const { contextBridge, ipcRenderer, shell } = require('electron');
+
+// Variables for throttling progress updates
+let lastProgressLogTime = Date.now();
+const PROGRESS_LOG_INTERVAL = 2000; // 2 seconds
+
+// Extract the app version from command line arguments
+let appVersion = '1.3.34'; // Default fallback version
+try {
+  // Parse command line arguments to find app version
+  if (process && process.argv) {
+    for (const arg of process.argv) {
+      if (arg.startsWith('--app-version=')) {
+        appVersion = arg.split('=')[1];
+        console.log(`Preload: Found app version in args: ${appVersion}`);
+        break;
+      }
+    }
+  }
+  
+  // If we couldn't find it in args, try other sources
+  if (appVersion === '1.3.34') {
+    // Try to get from remote
+    try {
+      // Remove the remote require since it's not installed
+      // Instead, try process.versions which is available in preload
+      if (process && process.versions && process.versions.electron) {
+        console.log(`Preload: Using version from package.json: ${appVersion}`);
+      }
+    } catch (err) {
+      console.warn('Could not get version from alternate sources:', err);
+    }
+  }
+} catch (err) {
+  console.error('Error extracting app version:', err);
+}
 
 console.log('Preload script executing - setting up contextBridge');
 
@@ -32,6 +68,9 @@ try {
     {
       // Flag to indicate the electron API is available
       isAvailable: true,
+      
+      // Add the app version directly as a property
+      appVersion: appVersion,
       
       // API to register/unregister keyboard shortcuts
       registerShortcut: (shortcut) => {
@@ -199,216 +238,164 @@ try {
         }
       },
       
-      // Add app update related functions
+      // Update functions
       checkForUpdates: async () => {
         try {
-          return await ipcRenderer.invoke('check-for-updates');
+          console.log('Preload: Checking for updates');
+          
+          // Create a timeout promise that rejects after 20 seconds
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+              reject(new Error('Update check timed out after 20 seconds'));
+            }, 20000);
+          });
+          
+          // Race the IPC call against the timeout
+          return await Promise.race([
+            ipcRenderer.invoke('check-for-updates'),
+            timeoutPromise
+          ]).catch(err => {
+            console.error('Error or timeout checking for updates:', err);
+            return { error: err.message, timeout: err.message.includes('timed out') };
+          });
         } catch (err) {
-          console.error('Error in checkForUpdates:', err);
+          console.error('Error checking for updates:', err);
           return { error: err.message };
         }
       },
       
-      // Add a direct GitHub API based update checker that doesn't rely on IPC
-      directCheckForUpdates: async () => {
+      // Get release notes independently of checking for updates
+      getReleaseNotes: async () => {
         try {
-          console.log('Using direct GitHub API for update check');
-          
-          // Define compareVersions function within the scope of directCheckForUpdates
-          const compareVersions = (v1, v2) => {
-            try {
-              // Remove 'v' prefix if present
-              v1 = (v1 || '').replace(/^v/i, '').trim();
-              v2 = (v2 || '').replace(/^v/i, '').trim();
-              
-              const v1Parts = v1.split('.').map(p => parseInt(p, 10) || 0);
-              const v2Parts = v2.split('.').map(p => parseInt(p, 10) || 0);
-              
-              // Ensure we have same number of components by padding with zeros
-              while (v1Parts.length < v2Parts.length) v1Parts.push(0);
-              while (v2Parts.length < v1Parts.length) v2Parts.push(0);
-              
-              // Compare each component
-              for (let i = 0; i < v1Parts.length; i++) {
-                if (v1Parts[i] > v2Parts[i]) return 1;
-                if (v1Parts[i] < v2Parts[i]) return -1;
-              }
-              
-              return 0; // They're the same
-            } catch (e) {
-              console.error('Error comparing versions:', e);
-              return 0; // Assume equal on error
-            }
-          };
-          
-          // Get current version - avoiding require which doesn't work well in production
-          let currentVersion = '1.2.1'; // Default fallback version
-          
-          try {
-            // First try to get version from the global APP_VERSION set in main.js
-            if (typeof global !== 'undefined' && global.APP_VERSION) {
-              currentVersion = global.APP_VERSION;
-              console.log('Got version from global.APP_VERSION:', currentVersion);
-            } else if (process && process.APP_VERSION) {
-              currentVersion = process.APP_VERSION;
-              console.log('Got version from process.APP_VERSION:', currentVersion);
-            } else {
-              // Try to get from electron app if available
-              const electron = require('electron');
-              const app = electron.remote?.app || electron.app;
-              if (app && app.getVersion) {
-                currentVersion = app.getVersion();
-                console.log('Got version from electron app:', currentVersion);
-              } else {
-                console.log('Using fallback version:', currentVersion);
-              }
-            }
-          } catch (e) {
-            console.error('Error getting current version:', e);
-            // Fall back to the default version
-          }
-          
-          // First try to fetch the latest-mac.yml file from GitHub releases
-          let latestVersion = '';
-          let releaseInfo = null;
-          
-          try {
-            // Try to fetch the latest-mac.yml file first
-            const ymlResponse = await fetch(
-              'https://github.com/jpaquino3/AI_Toolbox/releases/latest/download/latest-mac.yml'
-            );
-            
-            if (ymlResponse.ok) {
-              const ymlText = await ymlResponse.text();
-              console.log('Found latest-mac.yml:', ymlText);
-              
-              // Parse YAML to extract version
-              const versionMatch = /version:\s*(.+)/i.exec(ymlText);
-              if (versionMatch && versionMatch[1]) {
-                latestVersion = versionMatch[1].trim();
-                console.log('Version from latest-mac.yml:', latestVersion);
-              }
-            } else {
-              console.log('Failed to fetch latest-mac.yml, falling back to releases API');
-            }
-          } catch (ymlError) {
-            console.log('Error fetching latest-mac.yml:', ymlError);
-          }
-          
-          // If we couldn't get version from yml, fall back to GitHub API
-          if (!latestVersion) {
-            // Fetch the latest release info from GitHub API
-            const apiResponse = await fetch('https://api.github.com/repos/jpaquino3/AI_Toolbox/releases/latest');
-            
-            if (!apiResponse.ok) {
-              throw new Error(`GitHub API error: ${apiResponse.status}`);
-            }
-            
-            releaseInfo = await apiResponse.json();
-            console.log('Latest release info:', releaseInfo);
-            
-            // Get GitHub version without any "v" prefix
-            latestVersion = (releaseInfo.tag_name || '').replace(/^v/i, '').trim();
-          }
-          
-          console.log(`Current version: ${currentVersion}, Latest release: ${latestVersion}`);
-          
-          // Use proper version comparison
-          const isUpdateAvailable = compareVersions(latestVersion, currentVersion) > 0;
-          
-          return {
-            updateAvailable: isUpdateAvailable,
-            currentVersion,
-            latestVersion,
-            releaseInfo: releaseInfo || {
-              tag_name: latestVersion,
-              body: "Update available",
-              published_at: new Date().toISOString()
-            }
-          };
+          console.log('Preload: Getting latest release notes');
+          return await ipcRenderer.invoke('get-release-notes');
         } catch (err) {
-          console.error('Error in directCheckForUpdates:', err);
+          console.error('Error getting release notes:', err);
           return { 
-            updateAvailable: false, 
-            error: err.message 
+            success: false, 
+            error: err.message,
+            releaseNotes: 'Failed to load release notes: ' + err.message
           };
         }
       },
       
-      downloadUpdate: async () => {
+      downloadUpdate: async (version) => {
         try {
-          return await ipcRenderer.invoke('download-update');
+          console.log('Preload: Downloading update', version);
+          return await ipcRenderer.invoke('download-update', version);
         } catch (err) {
-          console.error('Error in downloadUpdate:', err);
-          return { success: false, error: err.message };
-        }
-      },
-      
-      quitAndInstall: async () => {
-        try {
-          return await ipcRenderer.invoke('quit-and-install');
-        } catch (err) {
-          console.error('Error in quitAndInstall:', err);
-          return { success: false, error: err.message };
+          console.error('Error downloading update:', err);
+          return { error: err.message };
         }
       },
       
       getAppVersion: async () => {
         try {
-          return await ipcRenderer.invoke('get-app-version');
+          console.log('Preload: Getting app version');
+          const result = await ipcRenderer.invoke('get-app-version');
+          console.log('Preload: Got app version result:', result);
+          return result;
         } catch (err) {
-          console.error('Error in getAppVersion:', err);
-          return { error: err.message };
+          console.error('Error getting app version:', err);
+          // Fallback to our exposed version property
+          return { 
+            version: appVersion,
+            error: err.message,
+            source: 'preload-fallback'
+          };
         }
       },
       
-      onUpdateAvailable: (callback) => {
+      getAppVersionSync: () => {
         try {
-          const handler = (event, info) => callback(info);
-          ipcRenderer.on('update-available', handler);
-          return () => ipcRenderer.removeListener('update-available', handler);
+          // Try multiple approaches to get the version
+          const versionFromGlobal = window.APP_VERSION || process.env.APP_VERSION;
+          if (versionFromGlobal) return versionFromGlobal;
+          
+          // Try to get from global exposed by main.js
+          if (typeof global !== 'undefined' && global.APP_VERSION) {
+            return global.APP_VERSION;
+          }
+          
+          // Fallback to package.json version
+          return '1.3.34'; // Hardcoded fallback
         } catch (err) {
-          console.error('Error setting up update-available listener:', err);
-          return () => {};
+          console.error('Error getting app version synchronously:', err);
+          return '1.3.34'; // Hardcoded fallback
         }
+      },
+      
+      // Event listeners for updates
+      onUpdateAvailable: (callback) => {
+        const handler = (event, info) => callback(info);
+        ipcRenderer.on('update-available', handler);
+        return () => {
+          ipcRenderer.removeListener('update-available', handler);
+        };
       },
       
       onUpdateNotAvailable: (callback) => {
-        try {
-          const handler = (event, info) => callback(info);
-          ipcRenderer.on('update-not-available', handler);
-          return () => ipcRenderer.removeListener('update-not-available', handler);
-        } catch (err) {
-          console.error('Error setting up update-not-available listener:', err);
-          return () => {};
-        }
-      },
-      
-      onUpdateError: (callback) => {
-        try {
-          const handler = (event, info) => callback(info);
-          ipcRenderer.on('update-error', handler);
-          return () => ipcRenderer.removeListener('update-error', handler);
-        } catch (err) {
-          console.error('Error setting up update-error listener:', err);
-          return () => {};
-        }
-      },
-      
-      onDownloadProgress: (callback) => {
-        const handler = (event, progressObj) => callback(progressObj);
-        ipcRenderer.on('download-progress', handler);
-        return () => ipcRenderer.removeListener('download-progress', handler);
+        const handler = () => callback();
+        ipcRenderer.on('update-not-available', handler);
+        return () => {
+          ipcRenderer.removeListener('update-not-available', handler);
+        };
       },
       
       onUpdateDownloaded: (callback) => {
         const handler = (event, info) => callback(info);
         ipcRenderer.on('update-downloaded', handler);
-        return () => ipcRenderer.removeListener('update-downloaded', handler);
+        return () => {
+          ipcRenderer.removeListener('update-downloaded', handler);
+        };
+      },
+      
+      onDownloadProgress: (callback) => {
+        const handler = (event, progressObj) => {
+          try {
+            callback(progressObj);
+            
+            // Throttle console logs to reduce spam
+            const now = Date.now();
+            if (now - lastProgressLogTime >= PROGRESS_LOG_INTERVAL || progressObj.percent === 100) {
+              console.log(`Download progress: ${progressObj.percent}%`);
+              lastProgressLogTime = now;
+            }
+          } catch (err) {
+            console.error('Error in download progress callback:', err);
+          }
+        };
+        
+        ipcRenderer.on('update-download-progress', handler);
+        return () => {
+          ipcRenderer.removeListener('update-download-progress', handler);
+        };
+      },
+      
+      onUpdateError: (callback) => {
+        const handler = (event, info) => callback(info);
+        ipcRenderer.on('update-error', handler);
+        return () => {
+          ipcRenderer.removeListener('update-error', handler);
+        };
+      },
+      
+      onUpdateStatus: (callback) => {
+        const handler = (event, statusInfo) => callback(statusInfo);
+        ipcRenderer.on('update-status', handler);
+        return () => {
+          ipcRenderer.removeListener('update-status', handler);
+        };
       },
       
       // Debug methods for testing update process (only available in development)
       mockUpdateAvailable: async () => {
+        // Only available in development mode
+        if (process.env.NODE_ENV !== 'development') {
+          console.log('Mock update methods are only available in development mode');
+          return { success: false, error: 'Not available in production mode' };
+        }
+        
         try {
           return await ipcRenderer.invoke('mock-update-available');
         } catch (err) {
@@ -418,6 +405,12 @@ try {
       },
       
       mockUpdateDownloaded: async () => {
+        // Only available in development mode
+        if (process.env.NODE_ENV !== 'development') {
+          console.log('Mock update methods are only available in development mode');
+          return { success: false, error: 'Not available in production mode' };
+        }
+        
         try {
           return await ipcRenderer.invoke('mock-update-downloaded');
         } catch (err) {
@@ -427,6 +420,12 @@ try {
       },
       
       mockUpdateProgress: async (percent) => {
+        // Only available in development mode
+        if (process.env.NODE_ENV !== 'development') {
+          console.log('Mock update methods are only available in development mode');
+          return { success: false, error: 'Not available in production mode' };
+        }
+        
         try {
           return await ipcRenderer.invoke('mock-update-progress', percent);
         } catch (err) {
@@ -472,37 +471,6 @@ try {
         } catch (err) {
           console.error('Error in enableWebviewDrops:', err);
           return false;
-        }
-      },
-      
-      // Add a sync method to get the app version immediately
-      getAppVersionSync: () => {
-        try {
-          // Try various sources for the version number
-          if (typeof global !== 'undefined' && global.APP_VERSION) {
-            return global.APP_VERSION;
-          }
-          
-          if (process && process.APP_VERSION) {
-            return process.APP_VERSION;
-          }
-          
-          // Try to get from package.json via the main process
-          try {
-            const electron = require('electron');
-            const app = electron.remote?.app || electron.app;
-            if (app && app.getVersion) {
-              return app.getVersion();
-            }
-          } catch (e) {
-            console.error('Error getting version from electron:', e);
-          }
-          
-          // Default fallback
-          return '1.2.1';
-        } catch (err) {
-          console.error('Error in getAppVersionSync:', err);
-          return '1.2.1';
         }
       }
     }

@@ -25,6 +25,7 @@ body {
   background-color: #f5f5f7;
   color: #1f2937;
   overflow: auto;
+  -webkit-app-region: no-drag; /* Make the body non-draggable */
 }
 
 #root {
@@ -33,6 +34,23 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* Add draggable titlebar area */
+.titlebar {
+  height: 28px;
+  background: transparent;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  -webkit-app-region: drag; /* Make the titlebar draggable */
+}
+
+/* Ensure content below titlebar is not draggable */
+.titlebar + * {
+  -webkit-app-region: no-drag;
 }
 
 .bg-dark-800 {

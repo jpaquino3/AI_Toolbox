@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src *; img-src 'self' data: file: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3001; connect-src *; img-src 'self' data: file: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:">
   <title>AIFM Toolbox Dashboard (DEV)</title>
   <style>
     body {
@@ -62,6 +62,43 @@
   </div>
   
   <script>
+    // Set up Node.js globals for the browser environment
+    window.global = window;
+    window.process = window.process || { env: {} };
+    window.Buffer = window.Buffer || { isBuffer: () => false };
+    
+    // Add a simple require polyfill
+    window.require = function(module) {
+      if (module === 'events') {
+        return require_events();
+      }
+      console.warn('Attempted to require: ' + module);
+      return {};
+    };
+    
+    // Simple EventEmitter implementation for the events module
+    function require_events() {
+      function EventEmitter() {
+        this._events = {};
+      }
+      
+      EventEmitter.prototype.on = function(type, listener) {
+        this._events[type] = this._events[type] || [];
+        this._events[type].push(listener);
+        return this;
+      };
+      
+      EventEmitter.prototype.emit = function(type) {
+        if (!this._events[type]) return false;
+        const args = Array.prototype.slice.call(arguments, 1);
+        this._events[type].forEach(listener => listener.apply(this, args));
+        return true;
+      };
+      
+      // Return the constructor directly, not an object containing it
+      return EventEmitter;
+    }
+    
     // This script helps debug loading issues
     console.log('Dev index.html loaded');
     
